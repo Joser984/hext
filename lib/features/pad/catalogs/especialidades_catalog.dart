@@ -1,0 +1,23 @@
+// Especialidades principales
+const List<String> kEspecialidadesPrincipales = [
+  'Medicina Interna',
+  'Cirugía General',
+  'Pediatría',
+  'Ginecología',
+  'Ortopedia',
+  'Cardiología',
+  'Neurología',
+  'Urología',
+  'Dermatología',
+  'Oftalmología',
+  'Otorrinolaringología',
+  'Psiquiatría',
+  'Reumatología',
+  'Endocrinología',
+  'Neumología',
+  'Gastroenterología',
+  'Nefrología',
+  'Oncología',
+  'Hematología',
+  'Infectología',
+];

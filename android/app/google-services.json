@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "876337617314",
+    "project_id": "hext-care-operations",
+    "storage_bucket": "hext-care-operations.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876337617314:android:60cffc794739a553b8fafb",
+        "android_client_info": {
+          "package_name": "com.gestionsalud.hext"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBV1aDZ73heYFPEe1rETVJ-9Xy-LF7wM_s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876337617314:android:e248913e0962431ab8fafb",
+        "android_client_info": {
+          "package_name": "com.hext.careoperations"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBV1aDZ73heYFPEe1rETVJ-9Xy-LF7wM_s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
