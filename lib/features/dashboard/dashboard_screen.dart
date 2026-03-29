@@ -66,8 +66,6 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 }
-  }
-}
 
 class _KpiCard extends StatelessWidget {
   final String label;

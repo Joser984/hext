@@ -7,10 +7,11 @@ class NuevoPadScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-    return const SafeArea(
-      top: false,
-      child: PacienteCaptacionForm(),
+      return const SafeArea(
+        top: false,
+        child: PacienteCaptacionForm(),
+      );
     );
-    );
+}
   }
 }
