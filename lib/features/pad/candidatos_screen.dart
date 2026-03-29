@@ -7,19 +7,15 @@ class CandidatosScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Candidatos PAD'),
-      ),
-      body: const SafeArea(
+      return SafeArea(
+        top: false,
         child: Center(
-          child: Text('Aquí irá la lista de candidatos PAD'),
+          child: FilledButton.icon(
+            onPressed: () => context.go('/pad/nuevo'),
+            icon: const Icon(Icons.add),
+            label: const Text('Nuevo candidato'),
+          ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/pad/nuevo'),
-        icon: const Icon(Icons.add),
-        label: const Text('Nuevo candidato'),
-      ),
-    );
+      );
   }
 }

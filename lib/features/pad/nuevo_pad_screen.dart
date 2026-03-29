@@ -7,12 +7,10 @@ class NuevoPadScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nuevo candidato PAD'),
-      ),
-      body: const SafeArea(
-        child: PacienteCaptacionForm(),
-      ),
+    return const SafeArea(
+      top: false,
+      child: PacienteCaptacionForm(),
+    );
     );
   }
 }
