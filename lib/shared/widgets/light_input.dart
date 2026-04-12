@@ -10,8 +10,11 @@ class LightInput extends StatefulWidget {
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onFieldSubmitted;
+  final VoidCallback? onTap;
   final bool enabled;
   final bool readOnly;
+  final bool obscureText;
   final int? maxLines;
 
   const LightInput({
@@ -23,8 +26,11 @@ class LightInput extends StatefulWidget {
     this.keyboardType,
     this.textInputAction,
     this.onChanged,
+    this.onFieldSubmitted,
+    this.onTap,
     this.enabled = true,
     this.readOnly = false,
+    this.obscureText = false,
     this.maxLines = 1,
   });
 
@@ -35,9 +41,54 @@ class LightInput extends StatefulWidget {
 class _LightInputState extends State<LightInput> {
   bool _focused = false;
   String? _errorText;
+  late bool _obscure;
+
+  @override
+  void initState() {
+    super.initState();
+    _obscure = widget.obscureText;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final Widget field = TextFormField(
+      controller: widget.controller,
+      validator: (value) {
+        final error = widget.validator?.call(value);
+        setState(() => _errorText = error);
+        return error;
+      },
+      keyboardType: widget.keyboardType,
+      textInputAction: widget.textInputAction,
+      onChanged: widget.onChanged,
+      onFieldSubmitted: widget.onFieldSubmitted,
+      onTap: widget.onTap,
+      enabled: widget.enabled,
+      readOnly: widget.readOnly,
+      obscureText: _obscure,
+      maxLines: widget.obscureText ? 1 : widget.maxLines,
+      textAlignVertical: const TextAlignVertical(y: 0.9),
+      style: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w400,
+        color: widget.readOnly || !widget.enabled
+            ? const Color(0xFF8A94A6)
+            : const Color(0xFF1C2228),
+      ),
+      decoration: InputDecoration(
+        hintText: widget.hint,
+        hintStyle: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w400,
+          color: Color(0xFF8A94A6),
+        ),
+        border: InputBorder.none,
+        isDense: true,
+        contentPadding: EdgeInsets.zero,
+        errorStyle: const TextStyle(height: 0, fontSize: 0),
+      ),
+    );
+
     return Focus(
       onFocusChange: (hasFocus) => setState(() => _focused = hasFocus),
       child: Builder(
@@ -48,39 +99,26 @@ class _LightInputState extends State<LightInput> {
             error: _errorText != null,
             enabled: widget.enabled,
             errorText: _errorText,
-            child: TextFormField(
-              controller: widget.controller,
-              validator: (value) {
-                final error = widget.validator?.call(value);
-                setState(() => _errorText = error);
-                return error;
-              },
-              keyboardType: widget.keyboardType,
-              textInputAction: widget.textInputAction,
-              onChanged: widget.onChanged,
-              enabled: widget.enabled,
-              readOnly: widget.readOnly,
-              maxLines: widget.maxLines,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                height: 1.2,
-                color: Color(0xFF1C2228),
-              ),
-              decoration: InputDecoration(
-                hintText: widget.hint,
-                hintStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w400,
-                  height: 1.2,
-                  color: Color(0xFF8A94A6),
-                ),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                errorStyle: const TextStyle(height: 0, fontSize: 0),
-              ),
-            ),
+            child: widget.obscureText
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: <Widget>[
+                      Expanded(
+                        child: field,
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _obscure = !_obscure),
+                        child: Icon(
+                          _obscure
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          size: 18,
+                          color: const Color(0xFF8A94A6),
+                        ),
+                      ),
+                    ],
+                  )
+                : field,
           );
         },
       ),

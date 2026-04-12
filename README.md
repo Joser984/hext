@@ -15,3 +15,10 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+## PAD Operational Docs
+
+- Phase 4 operational checklist: docs/fase4_checklist_operativo_resumen_pad.md
+- Phase 4 short closure record: docs/fase4_acta_corta_cierre_resumen_pad.md
+- Functional validation baseline: docs/acta_validacion_funcional_pad.md
+- Executive traffic-light summary: docs/resumen_semaforo_ejecutivo_pad.md

@@ -28,82 +28,76 @@ class LightDropdown<T> extends StatefulWidget {
 
 class _LightDropdownState<T> extends State<LightDropdown<T>> {
   bool _focused = false;
-  String? _errorText;
 
   @override
   Widget build(BuildContext context) {
     return Focus(
       onFocusChange: (hasFocus) => setState(() => _focused = hasFocus),
-      child: Builder(
-        builder: (context) {
+      child: FormField<T>(
+        initialValue: widget.value,
+        validator: widget.validator,
+        enabled: widget.enabled,
+        builder: (FormFieldState<T> fieldState) {
+          final T? currentValue = widget.value ?? fieldState.value;
+          final bool hasError =
+              fieldState.errorText != null && fieldState.errorText!.isNotEmpty;
+
           return FieldShell(
             label: widget.label,
             focused: _focused,
-            error: _errorText != null,
+            error: hasError,
             enabled: widget.enabled,
-            errorText: _errorText,
-            child: DropdownButtonFormField<T>(
-              initialValue: widget.value,
-              items: widget.items
-                  .map(
-                    (item) => DropdownMenuItem<T>(
-                      value: item.value,
-                      child: DefaultTextStyle.merge(
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                          height: 1.2,
-                          color: Color(0xFF1C2228),
+            errorText: fieldState.errorText,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<T>(
+                  value: currentValue,
+                  items: widget.items
+                      .map(
+                        (DropdownMenuItem<T> item) => DropdownMenuItem<T>(
+                          value: item.value,
+                          child: DefaultTextStyle.merge(
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                              color: Color(0xFF8A94A6),
+                            ),
+                            child: item.child,
+                          ),
                         ),
-                        child: item.child,
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: widget.enabled ? widget.onChanged : null,
-              validator: (value) {
-                final error = widget.validator?.call(value);
-                setState(() => _errorText = error);
-                return error;
-              },
-              isExpanded: true,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                height: 1.2,
-                color: Color(0xFF1C2228),
-              ),
-              icon: const Icon(
-                Icons.arrow_drop_down,
-                size: 20,
-                color: Color(0xFF8A94A6),
-              ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                errorStyle: TextStyle(height: 0, fontSize: 0),
-              ).copyWith(
-                hintText: widget.hint,
-                hintStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w400,
-                  height: 1.2,
-                  color: Color(0xFF8A94A6),
+                      )
+                      .toList(),
+                  onChanged: widget.enabled
+                      ? (T? value) {
+                          fieldState.didChange(value);
+                          widget.onChanged?.call(value);
+                        }
+                      : null,
+                  isExpanded: true,
+                  icon: const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 20,
+                    color: Color(0xFF8A94A6),
+                  ),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFF8A94A6),
+                  ),
+                  menuMaxHeight: 350,
+                  hint: widget.hint != null
+                      ? Text(
+                          widget.hint!,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w400,
+                            color: Color(0xFF8A94A6),
+                          ),
+                        )
+                      : null,
                 ),
               ),
-              menuMaxHeight: 350,
-              disabledHint: widget.hint != null
-                  ? Text(
-                      widget.hint!,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w400,
-                        height: 1.2,
-                        color: Color(0xFF8A94A6),
-                      ),
-                    )
-                  : null,
             ),
           );
         },

@@ -1,20 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:hext/shared/widgets/hext_top_bar.dart';
+import 'package:hext/features/agenda/agenda_module_page.dart';
 
 class ScheduleScreen extends StatelessWidget {
-  const ScheduleScreen({super.key});
+  const ScheduleScreen({
+    super.key,
+    this.initialSearch,
+  });
+
+  final String? initialSearch;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: const HextTopBar(title: 'Agenda'),
-      body: Center(
-        child: Text(
-          'Agenda',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
-        ),
-      ),
-    );
+    return AgendaModulePage(initialSearch: initialSearch);
   }
 }
 

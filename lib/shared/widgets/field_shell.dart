@@ -12,14 +12,14 @@ class FieldShell extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? margin;
 
-  static const double fieldHeight = 40; // Más compacto
+  static const double fieldHeight = 40;
   static const double borderRadius = 10;
   static const double borderWidth = 1.4;
-  static const double labelSpacing = 3; // Menor separación label-campo
+  static const double labelSpacing = 5;
   static const EdgeInsets contentPadding = EdgeInsets.symmetric(
-    horizontal: 10,
-    vertical: 7,
-  ); // Menos padding
+    horizontal: 12,
+    vertical: 0,
+  );
 
   const FieldShell({
     super.key,
@@ -33,10 +33,10 @@ class FieldShell extends StatelessWidget {
   });
 
   Color get _borderColor {
-    if (!enabled) return const Color(0xFFE0E3E7);
+    if (!enabled) return const Color(0xFFD4DBE3);
     if (error) return const Color(0xFFEF4444);
     if (focused) return const Color(0xFF06B6D4);
-    return const Color(0xFFE0E3E7);
+    return const Color(0xFFD2DAE3);
   }
 
   Color get _backgroundColor =>
@@ -44,7 +44,7 @@ class FieldShell extends StatelessWidget {
 
   TextStyle get _labelStyle => const TextStyle(
     fontSize: 12,
-    fontWeight: FontWeight.w500,
+    fontWeight: FontWeight.w400,
     color: Color(0xFF6B7280),
   );
 
