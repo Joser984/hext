@@ -3,6 +3,7 @@ class PadUiLabels {
 
   static const String dashboardTitle = 'Dashboard PAD';
   static const String newCaseTitle = 'Nuevo caso PAD';
+  static const String editCaseTitle = 'Editar caso PAD';
   static const String casesModuleTitle = 'Casos PAD';
 
   static const String casesPendingDefinition = 'Casos por definir';
@@ -10,6 +11,8 @@ class PadUiLabels {
 
   static const String newCase = 'Nuevo caso';
   static const String saveCase = 'Guardar caso';
+  static const String saveChanges = 'Guardar cambios';
+  static const String cancel = 'Cancelar';
 
   static const String caseSaved = 'Caso guardado';
   static const String caseApprovedForAdmission = 'Caso aprobado para ingreso';

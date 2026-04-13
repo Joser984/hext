@@ -4,6 +4,8 @@ import 'package:hext/core/catalog/pad_labels.dart';
 import 'package:hext/features/auth/auth_notifier.dart';
 import 'package:provider/provider.dart';
 
+enum _DesktopCreateAction { newCase, newVisit, addAuxiliary }
+
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.child});
 
@@ -38,7 +40,7 @@ class AppShell extends StatelessWidget {
   String _titleForRoute(BuildContext context) {
     final String location = GoRouterState.of(context).uri.toString();
     if (location.startsWith('/pad/nuevo')) return PadUiLabels.newCaseTitle;
-    if (location.startsWith('/pad/editar')) return PadUiLabels.newCaseTitle;
+    if (location.startsWith('/pad/editar')) return PadUiLabels.editCaseTitle;
     if (location.startsWith('/pad/candidatos')) {
       return PadUiLabels.casesModuleTitle;
     }
@@ -52,17 +54,103 @@ class AppShell extends StatelessWidget {
     return 'HEXT';
   }
 
+  _DesktopCreateAction? _desktopActionForRoute(String location) {
+    if (location.startsWith('/schedule/personal')) {
+      return _DesktopCreateAction.addAuxiliary;
+    }
+    if (location.startsWith('/schedule')) {
+      return _DesktopCreateAction.newVisit;
+    }
+    if (location.startsWith('/dashboard') ||
+        location.startsWith('/cases') ||
+        location.startsWith('/pending') ||
+        location.startsWith('/pad')) {
+      return _DesktopCreateAction.newCase;
+    }
+    return null;
+  }
+
+  String _desktopActionLabel(_DesktopCreateAction action) {
+    switch (action) {
+      case _DesktopCreateAction.newCase:
+        return 'Nuevo caso';
+      case _DesktopCreateAction.newVisit:
+        return 'Nueva visita';
+      case _DesktopCreateAction.addAuxiliary:
+        return 'Agregar personal';
+    }
+  }
+
+  void _handleDesktopAction(BuildContext context, _DesktopCreateAction action) {
+    switch (action) {
+      case _DesktopCreateAction.newCase:
+        context.go('/pad/nuevo');
+        break;
+      case _DesktopCreateAction.newVisit:
+        context.go('/schedule');
+        break;
+      case _DesktopCreateAction.addAuxiliary:
+        context.go('/schedule/personal');
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final int currentIndex = _currentIndex(context);
+    final String location = GoRouterState.of(context).uri.toString();
+    final bool isDesktop = MediaQuery.sizeOf(context).width >= 1024;
+    final _DesktopCreateAction? desktopAction = _desktopActionForRoute(
+      location,
+    );
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_titleForRoute(context)),
         elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(2),
+          child: Container(height: 2, color: const Color(0xFF0F5C58)),
+        ),
         actions: <Widget>[
+          if (isDesktop && desktopAction != null)
+            Tooltip(
+              message: _desktopActionLabel(desktopAction),
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                child: Material(
+                  color: const Color(0xFF17726D),
+                  borderRadius: BorderRadius.circular(10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => _handleDesktopAction(context, desktopAction),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(Icons.add, size: 18, color: Colors.white),
+                          SizedBox(width: 6),
+                          Text(
+                            'Crear',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (isDesktop) const SizedBox(width: 8),
           IconButton(
-            icon: const Icon(Icons.logout_outlined),
+            icon: const Icon(Icons.logout_outlined, color: Color(0xFF0F5C58)),
             tooltip: 'Cerrar sesion',
             onPressed: () async {
               await context.read<AuthNotifier>().signOut();
@@ -72,7 +160,7 @@ class AppShell extends StatelessWidget {
       ),
       body: child,
       bottomNavigationBar: BottomAppBar(
-        color: const Color(0xFFF5F7FA),
+        color: const Color(0xFFFFFFFF),
         surfaceTintColor: Colors.transparent,
         child: SafeArea(
           top: false,
@@ -92,9 +180,8 @@ class AppShell extends StatelessWidget {
                   selected: currentIndex == 1,
                   onTap: () => _onTap(context, 1),
                 ),
-                _CenterCreateButton(
-                  onTap: () => context.go('/pad/nuevo'),
-                ),
+                if (!isDesktop)
+                  _CenterCreateButton(onTap: () => context.go('/pad/nuevo')),
                 _BottomNavItem(
                   label: 'Agenda',
                   icon: Icons.calendar_today_outlined,
@@ -143,13 +230,15 @@ class _BottomNavItem extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
-                  color: selected ? const Color(0xFF06B6D4) : Colors.transparent,
+                  color: selected
+                      ? const Color(0xFF17726D)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
                   icon,
                   size: 20,
-                  color: selected ? Colors.white : const Color(0xFF1C2228),
+                  color: selected ? Colors.white : const Color(0xFF1F2937),
                 ),
               ),
               const SizedBox(height: 3),
@@ -159,7 +248,7 @@ class _BottomNavItem extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: FontWeight.w400,
                   color: selected
-                      ? const Color(0xFF1C2228)
+                      ? const Color(0xFF17726D)
                       : const Color(0xFF6B7280),
                 ),
               ),
@@ -183,7 +272,7 @@ class _CenterCreateButton extends StatelessWidget {
         child: Tooltip(
           message: 'Ingresar paciente',
           child: Material(
-            color: const Color(0xFF1E3A66),
+            color: const Color(0xFF0F5C58),
             shape: const CircleBorder(),
             elevation: 2,
             child: InkWell(

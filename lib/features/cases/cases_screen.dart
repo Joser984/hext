@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hext/core/catalog/pad_labels.dart';
 import 'package:hext/features/pad/summary/pad_summary_domain_adapter.dart';
 import 'package:hext/features/pad/summary/pad_summary_compact_mapper.dart';
@@ -217,6 +218,34 @@ class _CensoScreenState extends State<CensoScreen> {
       _estadoPadFilter = _allFilter;
       _unidadFuncionalFilter = _allFilter;
     });
+  }
+
+  void _openEditCase(CensoItem item) {
+    final String resolvedId =
+        item.candidatoId != null && item.candidatoId!.trim().isNotEmpty
+        ? item.candidatoId!
+        : item.identificacion;
+
+    final Map<String, dynamic> initialData = <String, dynamic>{
+      'nombreCompleto': item.nombreApellido,
+      'identificacion': item.identificacion,
+      'edad': item.edad,
+      'sexo': item.sexo == 'F'
+          ? 'Femenino'
+          : item.sexo == 'M'
+          ? 'Masculino'
+          : item.sexo,
+      'aseguradora': item.aseguradora,
+      'diagnostico': item.diagnostico,
+      'unidadFuncionalOrigen': item.unidadFuncionalOrigen,
+      'observaciones': item.observaciones,
+      if (item.motivoPrincipal != null)
+        'motivoIngresoPrincipal': item.motivoPrincipal,
+      if (item.motivosActivos != null)
+        'motivosIngresoActivos': item.motivosActivos,
+    };
+
+    context.push('/pad/editar/$resolvedId', extra: initialData);
   }
 
   bool get _hasActiveFilters {
@@ -504,6 +533,10 @@ class _CensoScreenState extends State<CensoScreen> {
                 _TableHeaderCell(
                   PadUiLabels.tableHeaderObservations,
                   flex: _TableFlex.observaciones,
+                ),
+                _TableHeaderCell(
+                  'ACCIONES',
+                  flex: _TableFlex.acciones,
                   isLast: true,
                 ),
               ],
@@ -556,8 +589,19 @@ class _CensoScreenState extends State<CensoScreen> {
           ),
           _TableDataCell(
             flex: _TableFlex.observaciones,
-            isLast: true,
             child: _SimpleCellText(item.observaciones, maxLines: 2),
+          ),
+          _TableDataCell(
+            flex: _TableFlex.acciones,
+            isLast: true,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _openEditCase(item),
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('Editar'),
+              ),
+            ),
           ),
         ],
       ),
@@ -629,6 +673,15 @@ class _CensoScreenState extends State<CensoScreen> {
                     _InfoLine(
                       label: PadUiLabels.observationsLabel,
                       value: item.observaciones,
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openEditCase(item),
+                        icon: const Icon(Icons.edit_outlined, size: 16),
+                        label: const Text('Editar'),
+                      ),
                     ),
                   ],
                 ),
@@ -704,6 +757,7 @@ class _CensoScreenState extends State<CensoScreen> {
 }
 
 class CensoItem {
+  final String? candidatoId;
   final String identificacion;
   final String nombreApellido;
   final int edad;
@@ -728,6 +782,7 @@ class CensoItem {
   final String? resolucionPad;
 
   CensoItem({
+    this.candidatoId,
     required this.identificacion,
     required this.nombreApellido,
     required this.edad,
@@ -766,9 +821,9 @@ class _TableFlex {
   static const int fechas = 8;
   static const int unidad = 12;
   static const int barrio = 14;
-  static const int observaciones = 19;
+  static const int observaciones = 15;
+  static const int acciones = 8;
 }
-
 
 class _TableHeaderCell extends StatelessWidget {
   final String text;
@@ -1025,4 +1080,3 @@ class _CaseCareSituationUi {
     return AppChipTone.neutral;
   }
 }
-

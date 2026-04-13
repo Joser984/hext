@@ -43,10 +43,7 @@ GoRouter buildRouter(AuthNotifier authNotifier) {
     },
     refreshListenable: authNotifier,
     routes: <RouteBase>[
-      GoRoute(
-        path: '/login',
-        builder: (context, state) => const LoginScreen(),
-      ),
+      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
@@ -60,15 +57,13 @@ GoRouter buildRouter(AuthNotifier authNotifier) {
           ),
           GoRoute(
             path: '/cases',
-            builder: (context, state) => CensoScreen(
-              initialSearch: state.uri.queryParameters['q'],
-            ),
+            builder: (context, state) =>
+                CensoScreen(initialSearch: state.uri.queryParameters['q']),
           ),
           GoRoute(
             path: '/schedule',
-            builder: (context, state) => ScheduleScreen(
-              initialSearch: state.uri.queryParameters['q'],
-            ),
+            builder: (context, state) =>
+                ScheduleScreen(initialSearch: state.uri.queryParameters['q']),
           ),
           GoRoute(
             path: '/schedule/horarios',
@@ -92,8 +87,12 @@ GoRouter buildRouter(AuthNotifier authNotifier) {
           ),
           GoRoute(
             path: '/pad/editar/:id',
-            builder: (context, state) =>
-                NuevoPadScreen(candidatoId: state.pathParameters['id']),
+            builder: (context, state) => NuevoPadScreen(
+              candidatoId: state.pathParameters['id'],
+              initialData: state.extra is Map<String, dynamic>
+                  ? state.extra! as Map<String, dynamic>
+                  : null,
+            ),
           ),
         ],
       ),

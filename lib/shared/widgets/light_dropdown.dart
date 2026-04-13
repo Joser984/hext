@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'field_shell.dart';
 
@@ -41,6 +40,9 @@ class _LightDropdownState<T> extends State<LightDropdown<T>> {
           final T? currentValue = widget.value ?? fieldState.value;
           final bool hasError =
               fieldState.errorText != null && fieldState.errorText!.isNotEmpty;
+          final Color valueColor = widget.enabled
+              ? const Color(0xFF1F2937)
+              : const Color(0xFF6B7280);
 
           return FieldShell(
             label: widget.label,
@@ -61,7 +63,7 @@ class _LightDropdownState<T> extends State<LightDropdown<T>> {
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w400,
-                              color: Color(0xFF8A94A6),
+                              color: Color(0xFF1F2937),
                             ),
                             child: item.child,
                           ),
@@ -78,12 +80,12 @@ class _LightDropdownState<T> extends State<LightDropdown<T>> {
                   icon: const Icon(
                     Icons.keyboard_arrow_down_rounded,
                     size: 20,
-                    color: Color(0xFF8A94A6),
+                    color: Color(0xFF6B7280),
                   ),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w400,
-                    color: Color(0xFF8A94A6),
+                    color: valueColor,
                   ),
                   menuMaxHeight: 350,
                   hint: widget.hint != null
@@ -92,7 +94,7 @@ class _LightDropdownState<T> extends State<LightDropdown<T>> {
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w400,
-                            color: Color(0xFF8A94A6),
+                            color: Color(0xFF6B7280),
                           ),
                         )
                       : null,

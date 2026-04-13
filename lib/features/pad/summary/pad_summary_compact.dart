@@ -36,9 +36,9 @@ class PadSummaryCompact extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFFF9FBFC),
+            color: const Color(0xFFFFFFFF),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFE3EAF0)),
+            border: Border.all(color: const Color(0xFFD9E2E7)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,7 +93,10 @@ class PadSummaryCompact extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               AppChip(
-                label: _chipLabel(vm.generalStatusLabel, maxChars: statusChipChars),
+                label: _chipLabel(
+                  vm.generalStatusLabel,
+                  maxChars: statusChipChars,
+                ),
                 tone: _chipToneFor(vm.statusTone),
                 leadingDot: true,
               ),

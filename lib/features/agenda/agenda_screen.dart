@@ -1,5 +1,6 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:hext/core/models/auxiliar_domiciliario.dart';
 import 'package:hext/core/repositories/in_memory_personal_repo.dart';
@@ -9,12 +10,10 @@ import 'package:hext/shared/widgets/filter_shell.dart';
 import 'package:hext/shared/widgets/light_dropdown.dart';
 import 'package:hext/shared/widgets/light_input.dart';
 import 'package:hext/shared/widgets/module_header.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AgendaScreen extends StatefulWidget {
-  const AgendaScreen({
-    super.key,
-    this.initialSearch,
-  });
+  const AgendaScreen({super.key, this.initialSearch});
 
   final String? initialSearch;
 
@@ -31,6 +30,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
   String? _turnoFiltro = 'Todos';
   String? _pendienteFiltro = 'Todos';
   String? _personalFiltro = 'Todos';
+  final Map<String, _VisitOperationalStatus> _visitOperational =
+      <String, _VisitOperationalStatus>{};
+  Timer? _clockTimer;
 
   List<String> _activeAuxiliares = kHorarioAuxiliaresRegistrados;
 
@@ -41,6 +43,10 @@ class _AgendaScreenState extends State<AgendaScreen> {
     if (seededSearch.isNotEmpty) {
       _buscarController.text = seededSearch;
     }
+    _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+    });
   }
 
   @override
@@ -51,14 +57,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
         .items
         .where((AuxiliarDomiciliario a) => a.activo)
         .toList();
-    _activeAuxiliares =
-        active.map((AuxiliarDomiciliario a) => a.nombreCompleto).toList();
+    _activeAuxiliares = active
+        .map((AuxiliarDomiciliario a) => a.nombreCompleto)
+        .toList();
     if (_activeAuxiliares.isEmpty) {
       _activeAuxiliares = kHorarioAuxiliaresRegistrados;
     }
   }
-
-
 
   final List<_AgendaVisitItem> _allVisits = <_AgendaVisitItem>[
     _AgendaVisitItem(
@@ -73,7 +78,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
           'AMLODIPINO TAB 10MG VO CADA DÍA · CARVEDILOL TAB 6.25MG VO CADA 12 HORAS · '
           'LINAGLIPTINA TAB 5MG VO CADA DÍA · TRIMETOPRIM SULFAMETOXAZOL 3 AMP IV CADA 8 HORAS · '
           'FI: 25/03/2026 · FF: 30/03/2026 · PARACETAMOL 1GR IV CADA 8 HORAS',
-      direccion: 'BARRIO BOSTON CRR 46 N° 31D - 32',
+      barrio: 'BOSTON',
+      direccion: 'CRR 46 N° 31D - 32',
       contacto: '3245304998 + 3245897047',
       pendiente: '',
       personalAsignado: 'LUIS CASTRO',
@@ -89,8 +95,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
       tratamiento:
           'CLINDAMICINA 600 MG ENDOVENOSO CADA 8 HORAS · PARACETAMOL 1 GR IV CADA 8 HORAS · '
           'ENOXAPARINA 80 MG SC CADA 24 HORAS',
-      direccion:
-          'LA CAMPIÑA TRV 47 # 23-44 · ENTRANDO POR EL PATILLAZO · 3 CUADRAS EN TODA LA ESQUINA',
+      barrio: 'LA CAMPIÑA',
+      direccion: 'TRV 47 # 23-44',
+      referencia: 'ENTRANDO POR EL PATILLAZO, 3 CUADRAS EN TODA LA ESQUINA',
       contacto: '3242313723 + 3014541144',
       pendiente: '',
       personalAsignado: '',
@@ -106,8 +113,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
       tratamiento:
           'TRIMETOPRIM/SULFAMETOXAZOL 3 AMP IV CADA 12 HORAS · PARACETAMOL 1 GR IV CADA 12 HORAS · '
           'LINAGLIPTINA 5 MG VO CADA DÍA + GLUCOMETRÍAS PRECOMIDAS Y A LAS 21 HORAS',
-      direccion:
-          'TACARIGUA MZ 14 LOTE 20 · REFERENCIA: ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZAN 2',
+      barrio: 'TACARIGUA',
+      direccion: 'MZ 14 LOTE 20',
+      referencia: 'ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZÁN 2',
       contacto: '3215261361 + 3222252817',
       pendiente: '',
       personalAsignado: 'LUIS CASTRO',
@@ -123,8 +131,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
       tratamiento:
           'TRIMETOPRIM/SULFAMETOXAZOL 3 AMP IV CADA 12 HORAS · PARACETAMOL 1 GR IV CADA 12 HORAS · '
           'LINAGLIPTINA 5 MG VO CADA DÍA + GLUCOMETRÍAS PRECOMIDAS Y A LAS 21 HORAS',
-      direccion:
-          'TACARIGUA MZ 14 LOTE 20 · REFERENCIA: ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZAN 2',
+      barrio: 'TACARIGUA',
+      direccion: 'MZ 14 LOTE 20',
+      referencia: 'ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZÁN 2',
       contacto: '3215261361 + 3222252817',
       pendiente: '',
       personalAsignado: '',
@@ -141,7 +150,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
           'AMLODIPINO TAB 10MG VO CADA DÍA · CARVEDILOL TAB 6.25MG VO CADA 12 HORAS · '
           'LINAGLIPTINA TAB 5MG VO CADA DÍA · TRIMETOPRIM SULFAMETOXAZOL 3 AMP IV CADA 8 HORAS · '
           'FI: 25/03/2026 · FF: 30/03/2026 · PARACETAMOL 1GR IV CADA 8 HORAS',
-      direccion: 'BARRIO BOSTON CRR 46 N° 31D - 32',
+      barrio: 'BOSTON',
+      direccion: 'CRR 46 N° 31D - 32',
       contacto: '3245304998 + 3245897047',
       pendiente: '',
       personalAsignado: 'LUIS CASTRO',
@@ -157,8 +167,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
       tratamiento:
           'TRIMETOPRIM/SULFAMETOXAZOL 3 AMP IV CADA 12 HORAS · PARACETAMOL 1 GR IV CADA 12 HORAS · '
           'LINAGLIPTINA 5 MG VO CADA DÍA + GLUCOMETRÍAS PRECOMIDAS Y A LAS 21 HORAS',
-      direccion:
-          'TACARIGUA MZ 14 LOTE 20 · REFERENCIA: ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZAN 2',
+      barrio: 'TACARIGUA',
+      direccion: 'MZ 14 LOTE 20',
+      referencia: 'ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZÁN 2',
       contacto: '3215261361 + 3222252817',
       pendiente: '',
       personalAsignado: 'LUIS CASTRO',
@@ -175,7 +186,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
           'AMLODIPINO TAB 10MG VO CADA DÍA · CARVEDILOL TAB 6.25MG VO CADA 12 HORAS · '
           'LINAGLIPTINA TAB 5MG VO CADA DÍA · TRIMETOPRIM SULFAMETOXAZOL 3 AMP IV CADA 8 HORAS · '
           'FI: 25/03/2026 · FF: 30/03/2026 · PARACETAMOL 1GR IV CADA 8 HORAS',
-      direccion: 'BARRIO BOSTON CRR 46 N° 31D - 32',
+      barrio: 'BOSTON',
+      direccion: 'CRR 46 N° 31D - 32',
       contacto: '3245304998 + 3245897047',
       pendiente: '',
       personalAsignado: 'LUIS CASTRO',
@@ -189,8 +201,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
       aseguradora: 'Sanitas',
       dx: 'FRACTURA SUPRA E INTERCONDÍLEA DE HÚMERO DERECHO',
       tratamiento: 'PARACETAMOL 2 GR IV CADA 12 HORAS',
-      direccion:
-          'SAN FERNANDO · SECTOR NUEVA JERUSALÉN · CALLE LOS PALENQUEROS MZ 7 LOT 14 2 PISO',
+      barrio: 'SAN FERNANDO',
+      direccion: 'CALLE LOS PALENQUEROS MZ 7 LOT 14 2 PISO',
+      referencia: 'SECTOR NUEVA JERUSALÉN',
       contacto: '3043835121 + 3024683411',
       pendiente: '',
       personalAsignado: 'LUIS CASTRO',
@@ -204,8 +217,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
       aseguradora: 'Mutual Ser',
       dx: 'L030 - CELULITIS DE LOS DEDOS DE LA MANO Y DEL PIE',
       tratamiento: 'CURACIÓN POR CLÍNICA DE HERIDA + PARACETAMOL CADA 12 HORAS',
-      direccion:
-          'BARRIO EL POZÓN MZ 139 A LOTE 5 · SECTOR LOS LAURELES · REFERENCIA: COLEGIO BONI',
+      barrio: 'EL POZÓN',
+      direccion: 'MZ 139 A LOTE 5',
+      referencia: 'SECTOR LOS LAURELES, COLEGIO BONI',
       contacto: '3044544816',
       pendiente: 'CURACIÓN',
       personalAsignado: '',
@@ -219,8 +233,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
       aseguradora: 'Nueva EPS',
       dx: 'L984 - ÚLCERA CRÓNICA DE LA PIEL + E106 - DIABETES MELLITUS INSULINODEPENDIENTE',
       tratamiento: 'CURACIÓN POR CLÍNICA DE HERIDA',
-      direccion:
-          'CARACOLES MZ 65 L 5 · ENTRANDO POR EL SEMÁFORO DE LA PRINCIPAL · RESTAURANTE LA MARQUEZA',
+      barrio: 'CARACOLES',
+      direccion: 'MZ 65 L 5',
+      referencia: 'ENTRANDO POR EL SEMÁFORO DE LA PRINCIPAL, RESTAURANTE LA MARQUEZA',
       contacto: '3005687846',
       pendiente: 'CURACIÓN',
       personalAsignado: '',
@@ -235,8 +250,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
       dx: 'S923 - FRACTURA DE HUESO DEL METATARSO + S932 - RUPTURA DE LIGAMENTOS A NIVEL DEL TOBILLO Y DEL PIE',
       tratamiento:
           'DIPIRONA 1 GR IV CADA 12 HR + PARACETAMOL 1 GR IV CADA 12 HR',
-      direccion:
-          'TURBACO CALLE 4 # 5-30 · BARRIO CALLE LA ESTRELLA · SECTOR EL BOLSILLO',
+      barrio: 'CALLE LA ESTRELLA, TURBACO',
+      direccion: 'CALLE 4 # 5-30',
+      referencia: 'SECTOR EL BOLSILLO',
       contacto: '3206700469 - 3212948616',
       pendiente: '',
       personalAsignado: 'NATALY VERGARA',
@@ -338,10 +354,10 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
       final List<String> responsibles =
           AgendaResponsibleResolver.resolveResponsiblesForSlot(
-        date: parsedDate,
-        hora: slotItems.first.hora,
-        nombres: _activeAuxiliares,
-      );
+            date: parsedDate,
+            hora: slotItems.first.hora,
+            nombres: _activeAuxiliares,
+          );
 
       if (responsibles.isEmpty) {
         resolved.addAll(
@@ -398,6 +414,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
   @override
   void dispose() {
+    _clockTimer?.cancel();
     _buscarController.dispose();
     _fechaController.dispose();
     super.dispose();
@@ -437,7 +454,12 @@ class _AgendaScreenState extends State<AgendaScreen> {
                 const SizedBox(height: 12),
                 _buildSectionHeader(theme),
                 const SizedBox(height: 8),
-                SizedBox(height: 620, child: _AgendaGrid(rows: _displayRows)),
+                constraints.maxWidth < 900
+                    ? _buildMobileAgenda()
+                    : SizedBox(
+                        height: 620,
+                        child: _AgendaGrid(rows: _displayRows),
+                      ),
               ],
             ),
           );
@@ -547,6 +569,28 @@ class _AgendaScreenState extends State<AgendaScreen> {
             spacing: 10,
             runSpacing: 10,
             children: <Widget>[
+              SizedBox(
+                height: 40,
+                child: OutlinedButton.icon(
+                  onPressed: _exportAgendaPdf,
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFD7DCE3)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                  icon: const Icon(
+                    Icons.picture_as_pdf_rounded,
+                    size: 18,
+                    color: Color(0xFF5B6474),
+                  ),
+                  label: const Text(
+                    'Exportar PDF',
+                    style: TextStyle(color: Color(0xFF5B6474)),
+                  ),
+                ),
+              ),
               SizedBox(
                 height: 40,
                 child: OutlinedButton.icon(
@@ -664,6 +708,106 @@ class _AgendaScreenState extends State<AgendaScreen> {
     });
   }
 
+  void _exportAgendaPdf() {
+    final String fileName = _buildAgendaPdfFileName();
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Exportando: $fileName')));
+  }
+
+  String _buildAgendaPdfFileName() {
+    final DateTime date =
+        _tryParseDate(_fechaController.text) ?? DateTime.now();
+    final String day = date.day.toString().padLeft(2, '0');
+    final String month = date.month.toString().padLeft(2, '0');
+    final String year = date.year.toString();
+    final String dateToken = '$day-$month-$year';
+
+    final String nameToken = _slugifyName(_buscarController.text);
+    if (nameToken.isEmpty) {
+      return 'Agenda_$dateToken.pdf';
+    }
+
+    return 'Agenda_${dateToken}_$nameToken.pdf';
+  }
+
+  String _slugifyName(String input, {int maxLength = 40}) {
+    final String trimmed = input.trim();
+    if (trimmed.isEmpty) return '';
+
+    String value = _stripAccents(
+      trimmed,
+    ).replaceAll(RegExp(r'[\\/]+'), ' ').replaceAll(RegExp(r'\s+'), '-');
+
+    value = value
+        .replaceAll(RegExp(r'[^A-Za-z0-9-]'), '')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+
+    if (value.length > maxLength) {
+      value = value.substring(0, maxLength).replaceAll(RegExp(r'-+$'), '');
+    }
+
+    return value;
+  }
+
+  String _stripAccents(String input) {
+    const Map<String, String> replacements = <String, String>{
+      'Á': 'A',
+      'À': 'A',
+      'Â': 'A',
+      'Ä': 'A',
+      'Ã': 'A',
+      'á': 'a',
+      'à': 'a',
+      'â': 'a',
+      'ä': 'a',
+      'ã': 'a',
+      'É': 'E',
+      'È': 'E',
+      'Ê': 'E',
+      'Ë': 'E',
+      'é': 'e',
+      'è': 'e',
+      'ê': 'e',
+      'ë': 'e',
+      'Í': 'I',
+      'Ì': 'I',
+      'Î': 'I',
+      'Ï': 'I',
+      'í': 'i',
+      'ì': 'i',
+      'î': 'i',
+      'ï': 'i',
+      'Ó': 'O',
+      'Ò': 'O',
+      'Ô': 'O',
+      'Ö': 'O',
+      'Õ': 'O',
+      'ó': 'o',
+      'ò': 'o',
+      'ô': 'o',
+      'ö': 'o',
+      'õ': 'o',
+      'Ú': 'U',
+      'Ù': 'U',
+      'Û': 'U',
+      'Ü': 'U',
+      'ú': 'u',
+      'ù': 'u',
+      'û': 'u',
+      'ü': 'u',
+      'Ñ': 'N',
+      'ñ': 'n',
+    };
+
+    return input
+        .split('')
+        .map((String char) => replacements[char] ?? char)
+        .join();
+  }
+
   static String _resolveTurno(String hora) {
     final int hour = _hourToInt(hora);
     if (hour < 12) return 'Mañana';
@@ -686,6 +830,408 @@ class _AgendaScreenState extends State<AgendaScreen> {
     return DateTime(year, month, day);
   }
 
+  DateTime _operationalNow() {
+    final DateTime now = DateTime.now();
+    final DateTime? selected = _tryParseDate(_fechaController.text);
+    if (selected == null) return now;
+    return DateTime(
+      selected.year,
+      selected.month,
+      selected.day,
+      now.hour,
+      now.minute,
+    );
+  }
+
+  Widget _buildMobileAgenda() {
+    final DateTime now = _operationalNow();
+    final List<_AgendaVisitItem> visits = List<_AgendaVisitItem>.from(
+      _filteredVisits,
+    )..sort((a, b) => _hourToInt(a.hora).compareTo(_hourToInt(b.hora)));
+
+    final List<_AgendaVisitItem> ahora = visits.where((_AgendaVisitItem item) {
+      final _VisitFlowState state = _stateFor(item).state;
+      if (state == _VisitFlowState.enRuta ||
+          state == _VisitFlowState.llego ||
+          state == _VisitFlowState.enAtencion) {
+        return true;
+      }
+
+      final DateTime? start = _visitDateTime(item);
+      if (start == null) return false;
+      final int minutesToStart = start.difference(now).inMinutes;
+      return state == _VisitFlowState.pendiente && minutesToStart <= 30;
+    }).toList();
+
+    final List<_AgendaVisitItem> siguientes = visits
+        .where((_AgendaVisitItem item) {
+          final _VisitFlowState state = _stateFor(item).state;
+          final DateTime? start = _visitDateTime(item);
+          return state == _VisitFlowState.pendiente &&
+              start != null &&
+              start.isAfter(now);
+        })
+        .take(3)
+        .toList();
+
+    final List<_AgendaVisitItem> terminadas = visits.where((
+      _AgendaVisitItem item,
+    ) {
+      return _stateFor(item).state == _VisitFlowState.finalizada;
+    }).toList();
+
+    final List<_AuxOperationRow> operationalRows = _buildAuxOperationRows(
+      now: now,
+      source: visits,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _buildOperationLivePanel(now: now, rows: operationalRows),
+        const SizedBox(height: 12),
+        _buildMobileSection(
+          title: 'Ahora',
+          items: ahora,
+          empty: 'Sin visitas en curso por ahora.',
+        ),
+        const SizedBox(height: 12),
+        _buildMobileSection(
+          title: 'Siguientes',
+          items: siguientes,
+          empty: 'No hay próximas visitas en esta vista.',
+        ),
+        const SizedBox(height: 12),
+        _buildMobileSection(
+          title: 'Terminadas',
+          items: terminadas,
+          empty: 'No hay visitas finalizadas todavía.',
+          collapsedStyle: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileSection({
+    required String title,
+    required List<_AgendaVisitItem> items,
+    required String empty,
+    bool collapsedStyle = false,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDCE3EA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF243247),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (items.isEmpty)
+            Text(
+              empty,
+              style: const TextStyle(fontSize: 13.5, color: Color(0xFF748096)),
+            )
+          else
+            Column(
+              children: items.map((_AgendaVisitItem item) {
+                return _MobileVisitCard(
+                  item: item,
+                  state: _stateFor(item),
+                  collapsed: collapsedStyle,
+                  onStateTap: (_VisitFlowState next) =>
+                      _updateVisitState(item: item, nextState: next),
+                  onOpenMap: () => _openMap(item.direccion),
+                  onPingLocation: () => _pingLocation(item),
+                );
+              }).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  _VisitOperationalStatus _stateFor(_AgendaVisitItem item) {
+    return _visitOperational[_visitKey(item)] ??
+        const _VisitOperationalStatus(state: _VisitFlowState.pendiente);
+  }
+
+  String _visitKey(_AgendaVisitItem item) {
+    return '${item.fecha}|${item.hora}|${item.paciente}';
+  }
+
+  DateTime? _visitDateTime(_AgendaVisitItem item) {
+    final DateTime? date = _tryParseDate(item.fecha);
+    if (date == null) return null;
+    final int hour = _hourToInt(item.hora);
+    return DateTime(date.year, date.month, date.day, hour);
+  }
+
+  void _updateVisitState({
+    required _AgendaVisitItem item,
+    required _VisitFlowState nextState,
+  }) {
+    final DateTime now = DateTime.now();
+    final _VisitOperationalStatus next = _VisitOperationalStatus(
+      state: nextState,
+      reportedAt: now,
+      onlineAt: now,
+      locationSnapshot: nextState == _VisitFlowState.llego
+          ? item.direccion
+          : null,
+    );
+
+    setState(() {
+      _visitOperational[_visitKey(item)] = next;
+    });
+  }
+
+  void _pingLocation(_AgendaVisitItem item) {
+    final String key = _visitKey(item);
+    final DateTime now = DateTime.now();
+    final _VisitOperationalStatus current =
+        _visitOperational[key] ??
+        const _VisitOperationalStatus(state: _VisitFlowState.pendiente);
+
+    setState(() {
+      _visitOperational[key] = current.copyWith(
+        reportedAt: now,
+        onlineAt: now,
+        locationSnapshot: item.direccion,
+      );
+    });
+  }
+
+  Widget _buildOperationLivePanel({
+    required DateTime now,
+    required List<_AuxOperationRow> rows,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDCE3EA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Operacion en campo · ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF243247),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (rows.isEmpty)
+            const Text(
+              'Sin auxiliares con asignacion en esta vista.',
+              style: TextStyle(fontSize: 13.5, color: Color(0xFF748096)),
+            )
+          else
+            Column(
+              children: rows.map((_AuxOperationRow row) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE7ECF1)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        row.auxiliar,
+                        style: const TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF243247),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        row.expectedLine,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF556074),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Ubicacion real: ${row.liveLocationLine}',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF748096),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Estado: ${row.stateLine}',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF748096),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<_AuxOperationRow> _buildAuxOperationRows({
+    required DateTime now,
+    required List<_AgendaVisitItem> source,
+  }) {
+    final Map<String, List<_AgendaVisitItem>> byAuxiliar =
+        <String, List<_AgendaVisitItem>>{};
+
+    for (final _AgendaVisitItem item in source) {
+      final String auxiliar = item.personalAsignado.trim();
+      if (auxiliar.isEmpty) continue;
+      byAuxiliar.putIfAbsent(auxiliar, () => <_AgendaVisitItem>[]).add(item);
+    }
+
+    final List<_AuxOperationRow> rows = <_AuxOperationRow>[];
+    for (final MapEntry<String, List<_AgendaVisitItem>> entry
+        in byAuxiliar.entries) {
+      final List<_AgendaVisitItem> visits = entry.value
+        ..sort((a, b) => _hourToInt(a.hora).compareTo(_hourToInt(b.hora)));
+
+      final _AgendaVisitItem? expected = _expectedVisitNow(visits, now);
+      final _VisitOperationalStatus? latest = _latestStatus(visits);
+
+      if (expected == null) {
+        rows.add(
+          _AuxOperationRow(
+            auxiliar: entry.key,
+            expectedLine: 'Sin visita activa en este momento.',
+            liveLocationLine: latest?.locationSnapshot ?? 'Sin actualizacion',
+            stateLine: latest == null
+                ? 'Sin reporte'
+                : '${_labelForState(latest.state)} · ${_formatShortTime(latest.onlineAt ?? latest.reportedAt)}',
+          ),
+        );
+        continue;
+      }
+
+      final DateTime start = _visitDateTime(expected)!;
+      final DateTime end = start.add(const Duration(minutes: 45));
+      rows.add(
+        _AuxOperationRow(
+          auxiliar: entry.key,
+          expectedLine:
+              'Debería estar: ${_AgendaFormatters.toTitleCase(expected.paciente)} · ${_AgendaFormatters.toTitleCase(expected.barrio ?? expected.direccion)} · ${_formatShortTime(start)}-${_formatShortTime(end)}',
+          liveLocationLine: latest?.locationSnapshot ?? 'Sin actualizacion',
+          stateLine: latest == null
+              ? 'Sin reporte'
+              : '${_labelForState(latest.state)} · ${_formatShortTime(latest.onlineAt ?? latest.reportedAt)}',
+        ),
+      );
+    }
+
+    rows.sort((a, b) => a.auxiliar.compareTo(b.auxiliar));
+    return rows;
+  }
+
+  _AgendaVisitItem? _expectedVisitNow(
+    List<_AgendaVisitItem> visits,
+    DateTime now,
+  ) {
+    for (final _AgendaVisitItem item in visits) {
+      final DateTime? start = _visitDateTime(item);
+      if (start == null) continue;
+      final DateTime end = start.add(const Duration(minutes: 45));
+      if (!now.isBefore(start) && now.isBefore(end)) {
+        return item;
+      }
+    }
+
+    for (final _AgendaVisitItem item in visits) {
+      final DateTime? start = _visitDateTime(item);
+      if (start != null && now.isBefore(start)) {
+        return item;
+      }
+    }
+
+    return visits.isNotEmpty ? visits.last : null;
+  }
+
+  _VisitOperationalStatus? _latestStatus(List<_AgendaVisitItem> visits) {
+    _VisitOperationalStatus? latest;
+    DateTime? latestAt;
+
+    for (final _AgendaVisitItem item in visits) {
+      final _VisitOperationalStatus? status =
+          _visitOperational[_visitKey(item)];
+      if (status == null) continue;
+      final DateTime? when = status.onlineAt ?? status.reportedAt;
+      if (when == null) continue;
+      if (latestAt == null || when.isAfter(latestAt)) {
+        latest = status;
+        latestAt = when;
+      }
+    }
+
+    return latest;
+  }
+
+  String _labelForState(_VisitFlowState state) {
+    switch (state) {
+      case _VisitFlowState.pendiente:
+        return 'Pendiente';
+      case _VisitFlowState.enRuta:
+        return 'En ruta';
+      case _VisitFlowState.llego:
+        return 'Llego';
+      case _VisitFlowState.enAtencion:
+        return 'En atencion';
+      case _VisitFlowState.finalizada:
+        return 'Finalizada';
+    }
+  }
+
+  String _formatShortTime(DateTime? time) {
+    if (time == null) return '--:--';
+    final String h = time.hour.toString().padLeft(2, '0');
+    final String m = time.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  Future<void> _openMap(String address) async {
+    final String query = Uri.encodeComponent('$address, Cartagena');
+    final Uri uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$query',
+    );
+    final bool opened = await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No fue posible abrir Maps.')),
+      );
+    }
+  }
 }
 
 class _AgendaGrid extends StatelessWidget {
@@ -848,15 +1394,19 @@ class _AgendaTableRow extends StatelessWidget {
                   ),
             width: _AgendaTableMetrics.tratamiento,
           ),
-          _BodyCell(
-            text: isEmpty
-                ? ''
-                : _AgendaFormatters.formatAddress(
-                    item.direccion,
-                    fallback: 'Sin dirección',
+          isEmpty
+              ? _BodyCell(
+                  text: '',
+                  width: _AgendaTableMetrics.direccion,
+                )
+              : _CustomBodyCell(
+                  width: _AgendaTableMetrics.direccion,
+                  child: _AddressBlock(
+                    barrio: item.barrio,
+                    direccion: item.direccion,
+                    referencia: item.referencia,
                   ),
-            width: _AgendaTableMetrics.direccion,
-          ),
+                ),
           _BodyCell(
             text: isEmpty
                 ? ''
@@ -998,7 +1548,9 @@ class _AgendaVisitItem {
   final String? aseguradora;
   final String dx;
   final String tratamiento;
+  final String? barrio;
   final String direccion;
+  final String? referencia;
   final String contacto;
   final String pendiente;
   final String personalAsignado;
@@ -1012,7 +1564,9 @@ class _AgendaVisitItem {
     this.aseguradora,
     required this.dx,
     required this.tratamiento,
+    this.barrio,
     required this.direccion,
+    this.referencia,
     required this.contacto,
     required this.pendiente,
     required this.personalAsignado,
@@ -1027,7 +1581,9 @@ class _AgendaVisitItem {
     String? aseguradora,
     String? dx,
     String? tratamiento,
+    String? barrio,
     String? direccion,
+    String? referencia,
     String? contacto,
     String? pendiente,
     String? personalAsignado,
@@ -1041,7 +1597,9 @@ class _AgendaVisitItem {
       aseguradora: aseguradora ?? this.aseguradora,
       dx: dx ?? this.dx,
       tratamiento: tratamiento ?? this.tratamiento,
+      barrio: barrio ?? this.barrio,
       direccion: direccion ?? this.direccion,
+      referencia: referencia ?? this.referencia,
       contacto: contacto ?? this.contacto,
       pendiente: pendiente ?? this.pendiente,
       personalAsignado: personalAsignado ?? this.personalAsignado,
@@ -1202,6 +1760,240 @@ class _AgendaTableMetrics {
       personalAsignado;
 }
 
+enum _VisitFlowState { pendiente, enRuta, llego, enAtencion, finalizada }
+
+class _VisitOperationalStatus {
+  final _VisitFlowState state;
+  final DateTime? reportedAt;
+  final DateTime? onlineAt;
+  final String? locationSnapshot;
+
+  const _VisitOperationalStatus({
+    required this.state,
+    this.reportedAt,
+    this.onlineAt,
+    this.locationSnapshot,
+  });
+
+  _VisitOperationalStatus copyWith({
+    _VisitFlowState? state,
+    DateTime? reportedAt,
+    DateTime? onlineAt,
+    String? locationSnapshot,
+  }) {
+    return _VisitOperationalStatus(
+      state: state ?? this.state,
+      reportedAt: reportedAt ?? this.reportedAt,
+      onlineAt: onlineAt ?? this.onlineAt,
+      locationSnapshot: locationSnapshot ?? this.locationSnapshot,
+    );
+  }
+}
+
+class _AuxOperationRow {
+  final String auxiliar;
+  final String expectedLine;
+  final String liveLocationLine;
+  final String stateLine;
+
+  const _AuxOperationRow({
+    required this.auxiliar,
+    required this.expectedLine,
+    required this.liveLocationLine,
+    required this.stateLine,
+  });
+}
+
+class _MobileVisitCard extends StatelessWidget {
+  const _MobileVisitCard({
+    required this.item,
+    required this.state,
+    required this.collapsed,
+    required this.onStateTap,
+    required this.onOpenMap,
+    required this.onPingLocation,
+  });
+
+  final _AgendaVisitItem item;
+  final _VisitOperationalStatus state;
+  final bool collapsed;
+  final ValueChanged<_VisitFlowState> onStateTap;
+  final VoidCallback onOpenMap;
+  final VoidCallback onPingLocation;
+
+  Color get _stateColor {
+    switch (state.state) {
+      case _VisitFlowState.pendiente:
+        return const Color(0xFF2F6FA3);
+      case _VisitFlowState.enRuta:
+        return const Color(0xFF9A6700);
+      case _VisitFlowState.llego:
+        return const Color(0xFF0B6A67);
+      case _VisitFlowState.enAtencion:
+        return const Color(0xFF17726D);
+      case _VisitFlowState.finalizada:
+        return const Color(0xFF667085);
+    }
+  }
+
+  String get _stateLabel {
+    switch (state.state) {
+      case _VisitFlowState.pendiente:
+        return 'Pendiente';
+      case _VisitFlowState.enRuta:
+        return 'En ruta';
+      case _VisitFlowState.llego:
+        return 'Llegó';
+      case _VisitFlowState.enAtencion:
+        return 'En atención';
+      case _VisitFlowState.finalizada:
+        return 'Finalizada';
+    }
+  }
+
+  String _nextLabel(_VisitFlowState next) {
+    switch (next) {
+      case _VisitFlowState.enRuta:
+        return 'En ruta';
+      case _VisitFlowState.llego:
+        return 'Llegué';
+      case _VisitFlowState.enAtencion:
+        return 'En atención';
+      case _VisitFlowState.finalizada:
+        return 'Finalizar';
+      case _VisitFlowState.pendiente:
+        return 'Pendiente';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final _PacienteParts parts = _AgendaFormatters.splitPaciente(item.paciente);
+    final List<_VisitFlowState> quickActions = <_VisitFlowState>[
+      _VisitFlowState.enRuta,
+      _VisitFlowState.llego,
+      _VisitFlowState.enAtencion,
+      _VisitFlowState.finalizada,
+    ];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: collapsed ? const Color(0xFFF8FAFC) : const Color(0xFFFFFFFF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE7ECF1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Text(
+                item.hora,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF243247),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: _stateColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _stateLabel,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: _stateColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            parts.nombre,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF243247),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _AgendaFormatters.toTitleCase(
+              item.personalAsignado,
+              fallback: 'Sin asignar',
+            ),
+            style: const TextStyle(fontSize: 13.5, color: Color(0xFF556074)),
+          ),
+          const SizedBox(height: 4),
+          _AddressBlock(
+            barrio: item.barrio,
+            direccion: item.direccion,
+            referencia: item.referencia,
+            compact: true,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              OutlinedButton.icon(
+                onPressed: onOpenMap,
+                icon: const Icon(Icons.map_outlined, size: 18),
+                label: const Text('Maps'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onPingLocation,
+                icon: const Icon(Icons.gps_fixed, size: 18),
+                label: const Text('Actualizar ubicacion'),
+              ),
+              if (!collapsed)
+                ...quickActions.map((action) {
+                  final bool selected = state.state == action;
+                  return FilledButton.tonal(
+                    onPressed: () => onStateTap(action),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: selected
+                          ? _stateColor.withValues(alpha: 0.2)
+                          : const Color(0xFFF2F4F7),
+                      foregroundColor: selected
+                          ? _stateColor
+                          : const Color(0xFF364152),
+                    ),
+                    child: Text(_nextLabel(action)),
+                  );
+                }),
+            ],
+          ),
+          if (state.reportedAt != null) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              'Ultimo cambio: ${state.reportedAt!.hour.toString().padLeft(2, '0')}:${state.reportedAt!.minute.toString().padLeft(2, '0')}',
+              style: const TextStyle(fontSize: 12.5, color: Color(0xFF748096)),
+            ),
+          ],
+          if (state.onlineAt != null) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              'En linea: ${state.onlineAt!.hour.toString().padLeft(2, '0')}:${state.onlineAt!.minute.toString().padLeft(2, '0')}',
+              style: const TextStyle(fontSize: 12.5, color: Color(0xFF748096)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 class _HeaderCell extends StatelessWidget {
   final String text;
@@ -1277,6 +2069,59 @@ class _CustomBodyCell extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Padding(padding: const EdgeInsets.only(right: 12), child: child),
+    );
+  }
+}
+
+/// Three-line address block: barrio (semibold) · dirección · referencia (gray).
+class _AddressBlock extends StatelessWidget {
+  final String? barrio;
+  final String direccion;
+  final String? referencia;
+  final bool compact;
+
+  const _AddressBlock({
+    this.barrio,
+    required this.direccion,
+    this.referencia,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const TextStyle baseStyle = TextStyle(
+      fontSize: 13.5,
+      height: 1.35,
+      color: Color(0xFF748096),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (barrio != null && barrio!.isNotEmpty)
+          Text(
+            _AgendaFormatters.toTitleCase(barrio!),
+            style: baseStyle.copyWith(fontWeight: FontWeight.w600),
+          ),
+        Text(
+          _AgendaFormatters.toTitleCase(
+            direccion,
+            fallback: 'Sin dirección',
+          ),
+          style: baseStyle,
+        ),
+        if (referencia != null && referencia!.isNotEmpty)
+          Text(
+            _AgendaFormatters.toTitleCase(referencia!),
+            maxLines: compact ? 2 : null,
+            overflow: compact ? TextOverflow.ellipsis : null,
+            style: baseStyle.copyWith(
+              fontSize: 12.5,
+              color: const Color(0xFFA0AEBE),
+              height: 1.3,
+            ),
+          ),
+      ],
     );
   }
 }

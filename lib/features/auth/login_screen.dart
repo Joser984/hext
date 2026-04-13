@@ -63,8 +63,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final String? errorMessage =
-        context.select<AuthNotifier, String?>((n) => n.errorMessage);
+    final String? errorMessage = context.select<AuthNotifier, String?>(
+      (n) => n.errorMessage,
+    );
 
     return Scaffold(
       body: SafeArea(
@@ -85,151 +86,158 @@ class _LoginScreenState extends State<LoginScreen> {
                       ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 440),
                         child: Card(
-                      elevation: 0,
-                      color: const Color(0xFFF2F4F7),
-                      shape: RoundedRectangleBorder(
-                        side: const BorderSide(color: Color(0xFFCDD6E0)),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(28, 36, 28, 32),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: <Widget>[
-                              const Text(
-                                'HEXT',
-                                style: TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w400,
-                                  color: Color(0xFF223A5E),
-                                  letterSpacing: 1.5,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 6),
-                              const Text(
-                                'Acceso al sistema',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w400,
-                                  color: Color(0xFF6B7280),
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 32),
-                              LightInput(
-                                label: 'Correo electronico',
-                                hint: 'usuario@clinica.com',
-                                controller: _emailCtrl,
-                                keyboardType: TextInputType.emailAddress,
-                                textInputAction: TextInputAction.next,
-                                validator: (String? v) {
-                                  if (v == null || v.trim().isEmpty) {
-                                    return 'Ingresa tu correo.';
-                                  }
-                                  if (!v.contains('@')) {
-                                    return 'Correo no valido.';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 14),
-                              LightInput(
-                                label: 'Contrasena',
-                                hint: '........',
-                                controller: _passwordCtrl,
-                                obscureText: true,
-                                textInputAction: TextInputAction.done,
-                                onFieldSubmitted: (_) => _submit(),
-                                validator: (String? v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Ingresa tu contrasena.';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: const Color(0xFF223A5E),
-                                    textStyle: const TextStyle(
-                                      fontSize: 12,
+                          elevation: 0,
+                          color: const Color(0xFFFFFFFF),
+                          shape: RoundedRectangleBorder(
+                            side: const BorderSide(color: Color(0xFFD9E2E7)),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(28, 36, 28, 32),
+                            child: Form(
+                              key: _formKey,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: <Widget>[
+                                  const Text(
+                                    'HEXT',
+                                    style: TextStyle(
+                                      fontSize: 26,
                                       fontWeight: FontWeight.w400,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                      vertical: 6,
-                                    ),
-                                  ),
-                                  onPressed: _forgotPassword,
-                                  child: const Text('Olvide mi contrasena'),
-                                ),
-                              ),
-                              if (errorMessage != null) ...<Widget>[
-                                const SizedBox(height: 2),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFEF1F1),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: const Color(0xFFF3CDCD),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    errorMessage,
-                                    style: const TextStyle(
-                                      color: Color(0xFFB42318),
-                                      fontSize: 13,
+                                      color: Color(0xFF17726D),
+                                      letterSpacing: 1.5,
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
-                                ),
-                              ],
-                              const SizedBox(height: 20),
-                              SizedBox(
-                                height: 40,
-                                child: FilledButton(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF223A5E),
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    textStyle: const TextStyle(
-                                      fontSize: 14,
+                                  const SizedBox(height: 6),
+                                  const Text(
+                                    'Acceso al sistema',
+                                    style: TextStyle(
+                                      fontSize: 13,
                                       fontWeight: FontWeight.w400,
+                                      color: Color(0xFF6B7280),
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 32),
+                                  LightInput(
+                                    label: 'Correo electronico',
+                                    hint: 'usuario@clinica.com',
+                                    controller: _emailCtrl,
+                                    keyboardType: TextInputType.emailAddress,
+                                    textInputAction: TextInputAction.next,
+                                    validator: (String? v) {
+                                      if (v == null || v.trim().isEmpty) {
+                                        return 'Ingresa tu correo.';
+                                      }
+                                      if (!v.contains('@')) {
+                                        return 'Correo no valido.';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 14),
+                                  LightInput(
+                                    label: 'Contrasena',
+                                    hint: '........',
+                                    controller: _passwordCtrl,
+                                    obscureText: true,
+                                    textInputAction: TextInputAction.done,
+                                    onFieldSubmitted: (_) => _submit(),
+                                    validator: (String? v) {
+                                      if (v == null || v.isEmpty) {
+                                        return 'Ingresa tu contrasena.';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: const Color(
+                                          0xFF17726D,
+                                        ),
+                                        textStyle: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 6,
+                                        ),
+                                      ),
+                                      onPressed: _forgotPassword,
+                                      child: const Text('Olvide mi contrasena'),
                                     ),
                                   ),
-                                  onPressed: _loading ? null : _submit,
-                                  child: _loading
-                                      ? const SizedBox.square(
-                                          dimension: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
+                                  if (errorMessage != null) ...<Widget>[
+                                    const SizedBox(height: 2),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFEF1F1),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: const Color(0xFFF3CDCD),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        errorMessage,
+                                        style: const TextStyle(
+                                          color: Color(0xFFB42318),
+                                          fontSize: 13,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 20),
+                                  SizedBox(
+                                    height: 40,
+                                    child: FilledButton(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFF17726D,
+                                        ),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
                                           ),
-                                        )
-                                      : const Text('Ingresar'),
-                                ),
+                                        ),
+                                        textStyle: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                      ),
+                                      onPressed: _loading ? null : _submit,
+                                      child: _loading
+                                          ? const SizedBox.square(
+                                              dimension: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Text('Ingresar'),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextButton(
+                                    onPressed: _loading
+                                        ? null
+                                        : () => context.go('/register'),
+                                    child: const Text('Crear cuenta'),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 8),
-                              TextButton(
-                                onPressed:
-                                    _loading ? null : () => context.go('/register'),
-                                child: const Text('Crear cuenta'),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                    ),
                       ),
                     ],
                   ),

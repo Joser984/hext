@@ -46,8 +46,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final String? errorMessage =
-        context.select<AuthNotifier, String?>((n) => n.errorMessage);
+    final String? errorMessage = context.select<AuthNotifier, String?>(
+      (n) => n.errorMessage,
+    );
 
     return Scaffold(
       body: SafeArea(
@@ -69,9 +70,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         constraints: const BoxConstraints(maxWidth: 440),
                         child: Card(
                           elevation: 0,
-                          color: const Color(0xFFF2F4F7),
+                          color: const Color(0xFFFFFFFF),
                           shape: RoundedRectangleBorder(
-                            side: const BorderSide(color: Color(0xFFCDD6E0)),
+                            side: const BorderSide(color: Color(0xFFD9E2E7)),
                             borderRadius: BorderRadius.circular(18),
                           ),
                           child: Padding(
@@ -86,7 +87,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     style: TextStyle(
                                       fontSize: 24,
                                       fontWeight: FontWeight.w400,
-                                      color: Color(0xFF223A5E),
+                                      color: Color(0xFF17726D),
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
@@ -194,11 +195,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     height: 40,
                                     child: FilledButton(
                                       style: FilledButton.styleFrom(
-                                        backgroundColor: const Color(0xFF223A5E),
+                                        backgroundColor: const Color(
+                                          0xFF17726D,
+                                        ),
                                         foregroundColor: Colors.white,
                                         shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                         ),
                                         textStyle: const TextStyle(
                                           fontSize: 14,

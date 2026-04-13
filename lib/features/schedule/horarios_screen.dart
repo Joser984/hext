@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:hext/core/models/auxiliar_domiciliario.dart';
 import 'package:hext/core/repositories/in_memory_personal_repo.dart';

@@ -16,8 +16,8 @@ class HextTopBar extends StatelessWidget implements PreferredSizeWidget {
         title,
         style: const TextStyle(
           fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF1C2228),
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF1F2937),
           letterSpacing: 0.5,
         ),
       ),
@@ -27,10 +27,7 @@ class HextTopBar extends StatelessWidget implements PreferredSizeWidget {
       shadowColor: Colors.transparent,
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
-        child: Container(
-          height: 1,
-          color: const Color(0xFFE0E3E7),
-        ),
+        child: Container(height: 1, color: const Color(0xFFD9E2E7)),
       ),
     );
   }

@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'field_shell.dart';
 
@@ -51,6 +50,10 @@ class _LightInputState extends State<LightInput> {
 
   @override
   Widget build(BuildContext context) {
+    final Color textColor = widget.readOnly || !widget.enabled
+        ? const Color(0xFF6B7280)
+        : const Color(0xFF1F2937);
+
     final Widget field = TextFormField(
       controller: widget.controller,
       validator: (value) {
@@ -71,16 +74,14 @@ class _LightInputState extends State<LightInput> {
       style: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w400,
-        color: widget.readOnly || !widget.enabled
-            ? const Color(0xFF8A94A6)
-            : const Color(0xFF1C2228),
+        color: textColor,
       ),
       decoration: InputDecoration(
         hintText: widget.hint,
         hintStyle: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w400,
-          color: Color(0xFF8A94A6),
+          color: Color(0xFF6B7280),
         ),
         border: InputBorder.none,
         isDense: true,
@@ -103,9 +104,7 @@ class _LightInputState extends State<LightInput> {
                 ? Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: <Widget>[
-                      Expanded(
-                        child: field,
-                      ),
+                      Expanded(child: field),
                       GestureDetector(
                         onTap: () => setState(() => _obscure = !_obscure),
                         child: Icon(
@@ -113,7 +112,7 @@ class _LightInputState extends State<LightInput> {
                               ? Icons.visibility_outlined
                               : Icons.visibility_off_outlined,
                           size: 18,
-                          color: const Color(0xFF8A94A6),
+                          color: const Color(0xFF6B7280),
                         ),
                       ),
                     ],

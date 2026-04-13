@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hext/core/models/app_user.dart';
 import 'package:hext/core/catalog/pad_labels.dart';
+import 'package:hext/features/auth/auth_notifier.dart';
+import 'package:hext/features/pad/catalogs/aseguradoras_catalog.dart';
 import 'package:hext/features/pad/summary/pad_summary_compact.dart';
 import 'package:hext/features/pad/summary/pad_summary_domain_adapter.dart';
 import 'package:hext/features/pad/summary/pad_summary_compact_mapper.dart';
 import 'package:hext/features/pad/services/pad_firestore_service.dart';
+import 'package:provider/provider.dart';
 
 enum SexoPaciente { femenino, masculino, otro }
 
@@ -22,6 +27,8 @@ enum TipoCaptacionPad { busquedaActivaPad, presentadoPorServicio }
 
 enum ServicioQuePresenta {
   urgencias,
+  hospitalizacionSanFernando,
+  hospitalizacionMariaAuxiliadora,
   hospitalizacion,
   uci,
   cirugia,
@@ -31,6 +38,8 @@ enum ServicioQuePresenta {
 
 enum OrigenPaciente {
   urgencias,
+  hospitalizacionSanFernando,
+  hospitalizacionMariaAuxiliadora,
   hospitalizacion,
   uci,
   cirugia,
@@ -39,11 +48,34 @@ enum OrigenPaciente {
 }
 
 enum EspecialidadPrincipalTratante {
-  medicinaInterna,
+  cardiologia,
   cirugiaGeneral,
-  ortopedia,
+  cirugiaVascular,
+  cuidadosPaliativos,
+  dermatologia,
+  endocrinologia,
+  gastroenterologia,
+  geriatria,
   ginecologia,
+  hematologia,
+  infectologia,
+  medicinaDelDolor,
+  medicinaFamiliar,
+  medicinaFisicaRehabilitacion,
+  medicinaInterna,
+  nefrologia,
+  neurologia,
+  neumologia,
+  nutricionClinica,
+  oftalmologia,
+  oncologia,
+  ortopediaTraumatologia,
+  otorrinolaringologia,
+  otra,
   pediatria,
+  psiquiatria,
+  reumatologia,
+  urologia,
 }
 
 enum DecisionPad {
@@ -118,6 +150,246 @@ class PacienteCaptacionForm extends StatefulWidget {
 }
 
 class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
+  static const Color _brandPrimary = Color(0xFF17726D);
+  static const Color _surfaceBase = Color(0xFFFFFFFF);
+  static const Color _surfaceMuted = Color(0xFFF3F4F6);
+  static const Color _borderSoft = Color(0xFFD9E2E7);
+  static const Color _textPrimary = Color(0xFF1F2937);
+  static const Color _textSecondary = Color(0xFF6B7280);
+
+  static const List<ServicioQuePresenta> _servicioQuePresentaOptions =
+      <ServicioQuePresenta>[
+        ServicioQuePresenta.urgencias,
+        ServicioQuePresenta.hospitalizacionSanFernando,
+        ServicioQuePresenta.hospitalizacionMariaAuxiliadora,
+        ServicioQuePresenta.uci,
+        ServicioQuePresenta.cirugia,
+        ServicioQuePresenta.consultaExterna,
+        ServicioQuePresenta.otro,
+      ];
+
+  static const List<OrigenPaciente> _origenPacienteOptions = <OrigenPaciente>[
+    OrigenPaciente.urgencias,
+    OrigenPaciente.hospitalizacionSanFernando,
+    OrigenPaciente.hospitalizacionMariaAuxiliadora,
+    OrigenPaciente.uci,
+    OrigenPaciente.cirugia,
+    OrigenPaciente.consultaExterna,
+    OrigenPaciente.otro,
+  ];
+
+  static const String _grupoRiesgoOtro = 'OTRO';
+  static const String _barrioOtro = 'Otro';
+  static const List<String> _barrioOptions = <String>[
+    'Alameda La Victoria',
+    'Albornoz',
+    'Alcibia',
+    'Alfredo V. Bonilla',
+    'Alto Bosque',
+    'Altos de San Isidro',
+    'Amberes',
+    'Antonio Jose de Sucre',
+    'Arroz Barato',
+    'Bellas Artes',
+    'Bellavista',
+    'Bicentenario',
+    'Blas de Lezo',
+    'Bocachica',
+    'Bocagrande',
+    'Bruselas',
+    'Buenos Aires',
+    'Caite',
+    'Camaguey',
+    'Campestre',
+    'Canapote',
+    'Carmen de Bolivar',
+    'Castillogrande',
+    'Ceballos',
+    'Centro',
+    'Cerros de Albornoz',
+    'Chambacu',
+    'Chapacuá',
+    'Chipre',
+    'Chiquinquira',
+    'Ciudad Bicentenario',
+    'Ciudadela 2000',
+    'Ciudadela La Paz',
+    'Colinas de Villa Barraza',
+    'Conjunto Portal de La Cordialidad',
+    'Crespo',
+    'Daniel Lemaitre',
+    'El Bosque',
+    'El Campestre',
+    'El Carmelo',
+    'El Country',
+    'El Educador',
+    'El Espinal',
+    'El Gallo',
+    'El Golf',
+    'El Limonar',
+    'El Milagro',
+    'El Nazareno',
+    'El Paraiso',
+    'El Poblado',
+    'El Pozón',
+    'El Prado',
+    'El Recreo',
+    'El Rodeo',
+    'El Rubi',
+    'El Socorro',
+    'El Uvito',
+    'Escallon Villa',
+    'España',
+    'Flor del Campo',
+    'Fredonia',
+    'Getsemani',
+    'Henequen',
+    'Jose Antonio Galan',
+    'Juan XXIII',
+    'La Boquilla',
+    'La Campiña',
+    'La Carolina',
+    'La Castellana',
+    'La Candelaria',
+    'La Central',
+    'La Concepcion',
+    'La Consolata',
+    'La Esperanza',
+    'La Esmeralda I',
+    'La Esmeralda II',
+    'La Florida',
+    'La Gloria',
+    'La India',
+    'La Magdalena',
+    'La Maria',
+    'La Matuna',
+    'La Paz',
+    'La Princesa',
+    'La Providencia',
+    'La Quinta',
+    'Las Americas',
+    'Las Brisas',
+    'Las Delicias',
+    'Las Gavias',
+    'Las Gaviotas',
+    'Las Palmeras',
+    'Las Reinas',
+    'Las Vegas',
+    'Loma Fresca',
+    'Los Alpes',
+    'Los Almendros',
+    'Los Calamares',
+    'Los Caracoles',
+    'Los Cerezos',
+    'Los Comuneros',
+    'Los Corales',
+    'Los Ejecutivos',
+    'Los Laureles',
+    'Los Santanderes',
+    'Manga',
+    'Manzanillo del Mar',
+    'Maria Auxiliadora',
+    'Martinez Martelo',
+    'Membrillal',
+    'Mirador de La Bahia',
+    'Mirador de San Jose',
+    'Miramar',
+    'Nelson Mandela',
+    'Nueve de Abril',
+    'Nuevo Bosque',
+    'Nuevo Chile',
+    'Nuevo Oriente',
+    'Olaya Herrera',
+    'Palmarito',
+    'Paraiso II',
+    'Paseo de Bolivar',
+    'Pasacaballos',
+    'Pedro Salazar',
+    'Pie de La Popa',
+    'Pie del Cerro',
+    'Policarpa',
+    'Portal de Alicante',
+    'Portales de San Fernando',
+    'Pozon Central',
+    'Puerta de Hierro',
+    'Puerto Rey',
+    'Republica de Chile',
+    'Republica del Caribe',
+    'Rodeo',
+    'San Antonio',
+    'San Bernardo',
+    'San Diego',
+    'San Fernando',
+    'San Francisco',
+    'San Isidro',
+    'San Jose de los Campanos',
+    'San Jose Obrero',
+    'San Pedro Martir',
+    'San Pedro y Libertad',
+    'San Vicente de Paul',
+    'Santa Clara',
+    'Santa Lucia',
+    'Santa Maria',
+    'Santa Monica',
+    'Santa Rita',
+    'Sector 11 de Noviembre',
+    'Sector Rafael Nuñez',
+    'Siete de Agosto',
+    'Torices',
+    'Turbaco Urbano',
+    'Urbanizacion La India',
+    'Urbanizacion San Buenaventura',
+    'Urbanizacion Simon Bolivar',
+    'Villa Barraza',
+    'Villa Corelca',
+    'Villa Estrella',
+    'Villa Fanny',
+    'Villa Hermosa',
+    'Villa Rosita',
+    'Villa Sandra',
+    'Villa Zuldany',
+    'Villagrande de Indias',
+    'Vista Hermosa',
+    'Zaragocilla',
+    _barrioOtro,
+  ];
+  static const List<String> _grupoRiesgoOptions = <String>[
+    'ENF. INFECCIOSAS Y PARASITARIAS',
+    'EMBARAZO, PARTO Y PUERPERIO',
+    'ALCOHOL/DROGAS Y TRASTORNOS ORGANICOS MENTALES INDUCIDOS POR ALCOHOL/DROGAS',
+    'ENF. O TRAST. MENTALES',
+    'ENF. Y TRAST. DE LA PIEL, DEL TEJIDO SUBCUTANEO Y DE LA MAMA',
+    'ENF. Y TRAST. DE LA SANGRE, DEL SISTEMA HEMATOPOYETICO Y DEL SISTEMA INMUNITARIO',
+    'ENF. Y TRAST. DEL OIDO, NARIZ, BOCA Y GARGANTA',
+    'ENF. Y TRAST. DEL OJO',
+    'ENF. Y TRAST. DEL RINON Y VIAS URINARIAS',
+    'ENF. Y TRAST. DEL SISTEMA CIRCULATORIO',
+    'ENF. Y TRAST. DEL SISTEMA DIGESTIVO',
+    'ENF. Y TRAST. DEL SISTEMA HEPATOBILIAR Y PANCREAS',
+    'ENF. Y TRAST. DEL SISTEMA MUSCULOESQUELETICO Y TEJIDO CONECTIVO',
+    'ENF. Y TRAST. DEL SISTEMA NERVIOSO',
+    'ENF. Y TRAST. DEL SISTEMA REPRODUCTOR FEMENINO',
+    'ENF. Y TRAST. DEL SISTEMA REPRODUCTOR MASCULINO',
+    'ENF. Y TRAST. DEL SISTEMA RESPIRATORIO',
+    'ENF. Y TRAST. ENDOCRINOS, NUTRICIONALES Y METABOLICOS',
+    'ENF. Y TRAST. MIELOPROLIFERATIVOS Y NEOPLASIAS POCO DIFERENCIADAS',
+    'FACTORES QUE INFLUYEN EN EL ESTADO DE SALUD Y OTROS CONTACTOS CON SERVICIOS DE SALUD',
+    'HERIDAS, ENVENENAMIENTOS Y EFECTOS TOXICOS DE LAS DROGAS',
+    'INFECCIONES POR EL VIH',
+    'POLITRAUMATISMOS IMPORTANTES',
+    'QUEMADURAS',
+    'RECIEN NACIDOS Y CUADROS DEL PERIODO PERINATAL',
+    _grupoRiesgoOtro,
+  ];
+  static const List<String> _causaReingresoOptions = <String>[
+    'Comorbilidades descompensadas',
+    'Factores sociales o de soporte no favorables',
+    'Necesidad de escalamiento del nivel de atención por evolución clínica',
+    'Progresión de la patología de base',
+    'Requerimiento de atención intrahospitalaria',
+    'Reacción adversa a medicamento',
+  ];
+
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   final TextEditingController _nombreCompletoController =
@@ -127,11 +399,27 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
   final TextEditingController _edadController = TextEditingController();
 
   final TextEditingController _aseguradoraController = TextEditingController();
+  String? _aseguradoraCatalogKey;
 
   final TextEditingController _diagnosticoController = TextEditingController();
   final TextEditingController _grupoRiesgoController = TextEditingController();
+  String? _grupoRiesgoSeleccionado;
+  final TextEditingController _especialidadBusquedaController =
+      TextEditingController();
+  final TextEditingController _especialidadManualController =
+      TextEditingController();
 
   final TextEditingController _unidadFuncionalOrigenController =
+      TextEditingController();
+  final TextEditingController _barrioController = TextEditingController();
+  final TextEditingController _barrioSearchController =
+      TextEditingController();
+  String? _barrioSeleccionado;
+  final TextEditingController _direccionController = TextEditingController();
+  final TextEditingController _referenciaController = TextEditingController();
+  final TextEditingController _telefonoPrincipalController =
+      TextEditingController();
+  final TextEditingController _telefonoAlternoController =
       TextEditingController();
   final TextEditingController _observacionesController =
       TextEditingController();
@@ -144,8 +432,12 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
   ServicioQuePresenta? _servicioQuePresenta;
 
   OrigenPaciente? _origenPaciente;
+  bool _origenPacienteEditadoManualmente = false;
+  OrigenPaciente? _ultimoOrigenAutocompletado;
   EspecialidadPrincipalTratante? _especialidadPrincipalTratante;
   DecisionPad? _decision;
+  bool _esReingreso = false;
+  String? _causaReingreso;
 
   String? _selectedAdmissionReason;
   final Set<String> _selectedAdmissionReasonKeys = <String>{};
@@ -198,8 +490,47 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
     _diagnosticoController.text = (data['diagnostico'] as String?) ?? '';
     _grupoRiesgoController.text =
         (data['grupoRelacionadoRiesgo'] as String?) ?? '';
+    final String grupoRiesgo = _grupoRiesgoController.text.trim();
+    if (grupoRiesgo.isEmpty) {
+      _grupoRiesgoSeleccionado = null;
+    } else if (_grupoRiesgoOptions.contains(grupoRiesgo)) {
+      _grupoRiesgoSeleccionado = grupoRiesgo;
+    } else {
+      _grupoRiesgoSeleccionado = _grupoRiesgoOtro;
+    }
     _unidadFuncionalOrigenController.text =
         (data['unidadFuncionalOrigen'] as String?) ?? '';
+    _barrioController.text = (data['barrio'] as String?)?.trim() ?? '';
+    final String barrio = _barrioController.text.trim();
+    if (barrio.isEmpty) {
+      _barrioSeleccionado = null;
+    } else if (_barrioOptions.contains(barrio)) {
+      _barrioSeleccionado = barrio;
+    } else {
+      _barrioSeleccionado = _barrioOtro;
+    }
+    _barrioSearchController.text = _barrioSeleccionado ?? '';
+    _direccionController.text = (data['direccion'] as String?)?.trim() ?? '';
+    _referenciaController.text =
+        (data['referenciaUbicacion'] as String?)?.trim() ??
+        (data['referencia'] as String?)?.trim() ??
+        '';
+    _telefonoPrincipalController.text =
+        (data['telefonoPrincipal'] as String?)?.trim() ?? '';
+    _telefonoAlternoController.text =
+        (data['telefonoAlterno'] as String?)?.trim() ?? '';
+    final String contactoRaw = (data['contacto'] as String?)?.trim() ?? '';
+    if (contactoRaw.isNotEmpty &&
+        _telefonoPrincipalController.text.isEmpty &&
+        _telefonoAlternoController.text.isEmpty) {
+      final List<String> telefonos = _splitContacto(contactoRaw);
+      if (telefonos.isNotEmpty) {
+        _telefonoPrincipalController.text = telefonos.first;
+      }
+      if (telefonos.length > 1) {
+        _telefonoAlternoController.text = telefonos[1];
+      }
+    }
     _observacionesController.text = (data['observaciones'] as String?) ?? '';
 
     _sexo = _findEnumByLabel<SexoPaciente>(
@@ -212,6 +543,7 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
       data['tipoAseguramiento'] as String?,
       _tipoAseguramientoLabel,
     );
+    _syncAseguradoraFromStoredValue();
     _regimenAseguramiento = _findEnumByLabel<RegimenAseguramiento>(
       RegimenAseguramiento.values,
       data['regimenAseguramiento'] as String?,
@@ -232,17 +564,44 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
       data['origenPaciente'] as String?,
       _origenPacienteLabel,
     );
+    _syncUnidadFuncionalOrigenDesdeOrigen();
+    _ultimoOrigenAutocompletado = _origenFromServicio(_servicioQuePresenta);
+    _origenPacienteEditadoManualmente = _origenPaciente != null;
     _especialidadPrincipalTratante =
         _findEnumByLabel<EspecialidadPrincipalTratante>(
           EspecialidadPrincipalTratante.values,
           data['especialidadPrincipalTratante'] as String?,
           _especialidadPrincipalTratanteLabel,
         );
+    final String especialidadRaw =
+        (data['especialidadPrincipalTratante'] as String?)?.trim() ?? '';
+    if (_especialidadPrincipalTratante != null) {
+      _especialidadBusquedaController.text =
+          _especialidadPrincipalTratanteLabel(_especialidadPrincipalTratante!);
+      _especialidadManualController.clear();
+    } else if (especialidadRaw.isNotEmpty) {
+      _especialidadPrincipalTratante = EspecialidadPrincipalTratante.otra;
+      _especialidadBusquedaController.text =
+          _especialidadPrincipalTratanteLabel(
+            EspecialidadPrincipalTratante.otra,
+          );
+      _especialidadManualController.text = especialidadRaw;
+    } else {
+      _especialidadBusquedaController.clear();
+      _especialidadManualController.clear();
+    }
     _decision = _findEnumByLabel<DecisionPad>(
       DecisionPad.values,
       data['decision'] as String?,
       _decisionPadLabel,
     );
+    final String? causaReingreso =
+        (data['causaReingreso'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (data['causaReingreso'] as String).trim();
+    _causaReingreso = causaReingreso;
+    _esReingreso =
+        ((data['esReingreso'] as bool?) ?? false) || causaReingreso != null;
 
     final List<dynamic> legacyMotivos =
         (data['motivos'] as List<dynamic>?) ?? <dynamic>[];
@@ -422,7 +781,15 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
     _aseguradoraController.dispose();
     _diagnosticoController.dispose();
     _grupoRiesgoController.dispose();
+    _especialidadBusquedaController.dispose();
+    _especialidadManualController.dispose();
     _unidadFuncionalOrigenController.dispose();
+    _barrioController.dispose();
+    _barrioSearchController.dispose();
+    _direccionController.dispose();
+    _referenciaController.dispose();
+    _telefonoPrincipalController.dispose();
+    _telefonoAlternoController.dispose();
     _observacionesController.dispose();
     _observacionesTratamientoController.dispose();
     _heridasCadaCuantosDiasController.dispose();
@@ -489,6 +856,21 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
       decision: _decision,
       observaciones: _observacionesController.text.trim(),
     );
+    final String barrio = _barrioController.text.trim();
+    final String direccion = _direccionController.text.trim();
+    final String referenciaUbicacion = _referenciaController.text.trim();
+    final String telefonoPrincipal = _telefonoPrincipalController.text.trim();
+    final String telefonoAlterno = _telefonoAlternoController.text.trim();
+    final String? especialidadCatalogo =
+        _especialidadPrincipalTratante == null ||
+            _especialidadPrincipalTratante == EspecialidadPrincipalTratante.otra
+        ? null
+        : _especialidadPrincipalTratanteLabel(_especialidadPrincipalTratante!);
+    final String especialidadManual = _especialidadManualController.text.trim();
+    final String? especialidadPersistida =
+        _especialidadPrincipalTratante == EspecialidadPrincipalTratante.otra
+        ? (especialidadManual.isEmpty ? null : especialidadManual)
+        : especialidadCatalogo;
 
     final Map<String, dynamic> data = <String, dynamic>{
       'nombreCompleto': paciente.nombreCompleto,
@@ -509,15 +891,28 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
       'origenPaciente': paciente.origenPaciente == null
           ? null
           : _origenPacienteLabel(paciente.origenPaciente!),
-      'especialidadPrincipalTratante':
-          paciente.especialidadPrincipalTratante == null
-          ? null
-          : _especialidadPrincipalTratanteLabel(
-              paciente.especialidadPrincipalTratante!,
-            ),
+      'especialidadPrincipalTratante': especialidadPersistida,
+      'especialidadCatalogo': especialidadCatalogo,
+      'especialidadManual':
+          _especialidadPrincipalTratante == EspecialidadPrincipalTratante.otra
+          ? (especialidadManual.isEmpty ? null : especialidadManual)
+          : null,
       'diagnostico': paciente.diagnostico,
       'grupoRelacionadoRiesgo': paciente.grupoRelacionadoRiesgo,
       'unidadFuncionalOrigen': paciente.unidadFuncionalOrigen,
+      'barrio': barrio.isEmpty ? null : barrio,
+      'direccion': direccion.isEmpty ? null : direccion,
+      'referenciaUbicacion': referenciaUbicacion.isEmpty
+          ? null
+          : referenciaUbicacion,
+      'telefonoPrincipal': telefonoPrincipal.isEmpty ? null : telefonoPrincipal,
+      'telefonoAlterno': telefonoAlterno.isEmpty ? null : telefonoAlterno,
+      'contacto': _composeContacto(
+        telefonoPrincipal: telefonoPrincipal,
+        telefonoAlterno: telefonoAlterno,
+      ),
+      'esReingreso': _isEditing ? _esReingreso : null,
+      'causaReingreso': _isEditing && _esReingreso ? _causaReingreso : null,
       'decision': paciente.decision == null
           ? null
           : _decisionPadLabel(paciente.decision!),
@@ -562,13 +957,15 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
             'Tipo captación PAD: ${_tipoCaptacionPadLabel(paciente.tipoCaptacionPad)}\n'
             'Servicio que presenta: ${paciente.servicioQuePresenta != null ? _servicioQuePresentaLabel(paciente.servicioQuePresenta!) : '-'}\n'
             'Origen: ${paciente.origenPaciente != null ? _origenPacienteLabel(paciente.origenPaciente!) : '-'}\n'
-            'Especialidad: ${paciente.especialidadPrincipalTratante != null ? _especialidadPrincipalTratanteLabel(paciente.especialidadPrincipalTratante!) : '-'}\n'
+            'Especialidad: ${especialidadPersistida ?? '-'}\n'
             'Diagnóstico: ${paciente.diagnostico}\n'
             'Grupo de riesgo: ${paciente.grupoRelacionadoRiesgo}\n'
             'Motivo principal: ${paciente.motivoIngresoPrincipal ?? '-'}\n'
             'Motivos activos: ${paciente.motivosIngresoActivos.isEmpty ? '-' : paciente.motivosIngresoActivos.join(', ')}\n'
             'Detalle del motivo: ${_motivoDetalleSummary()}\n'
-            'Decisión: ${paciente.decision != null ? _decisionPadLabel(paciente.decision!) : '-'}',
+            'Decisión: ${paciente.decision != null ? _decisionPadLabel(paciente.decision!) : '-'}\n'
+            'Reingreso: ${_isEditing ? (_esReingreso ? 'Sí' : 'No') : '-'}\n'
+            'Causa del reingreso: ${_isEditing && _esReingreso ? (_causaReingreso ?? '-') : '-'}',
           ),
         ),
         actions: <Widget>[
@@ -589,13 +986,148 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
     );
   }
 
+  void _cancelarEdicion() {
+    final NavigatorState navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    context.go('/cases');
+  }
+
+  List<String> _splitContacto(String raw) {
+    final String normalized = raw.replaceAll('·', '+');
+    return normalized
+        .split(RegExp(r'\s*(?:\+|-|/)\s*'))
+        .map((String value) => value.trim())
+        .where((String value) => value.isNotEmpty)
+        .toList();
+  }
+
+  String? _composeContacto({
+    required String telefonoPrincipal,
+    required String telefonoAlterno,
+  }) {
+    if (telefonoPrincipal.isEmpty && telefonoAlterno.isEmpty) return null;
+    if (telefonoPrincipal.isNotEmpty && telefonoAlterno.isNotEmpty) {
+      return '$telefonoPrincipal + $telefonoAlterno';
+    }
+    return telefonoPrincipal.isNotEmpty ? telefonoPrincipal : telefonoAlterno;
+  }
+
+  String? _catalogTipoFromAseguramiento(TipoAseguramiento? tipo) {
+    switch (tipo) {
+      case TipoAseguramiento.eps:
+        return 'eps';
+      case TipoAseguramiento.medicinaPrepagada:
+        return 'prepagada';
+      case TipoAseguramiento.poliza:
+        return 'poliza';
+      case TipoAseguramiento.particular:
+      case TipoAseguramiento.otro:
+      case null:
+        return null;
+    }
+  }
+
+  List<dynamic> get _aseguradoraOpciones {
+    final String? tipoCatalogo = _catalogTipoFromAseguramiento(
+      _tipoAseguramiento,
+    );
+    return aseguradorasPorTipo(tipoCatalogo);
+  }
+
+  void _syncAseguradoraFromStoredValue() {
+    final String rawValue = _aseguradoraController.text.trim();
+    if (rawValue.isEmpty) {
+      _aseguradoraCatalogKey = null;
+      return;
+    }
+
+    final List<dynamic> options = _aseguradoraOpciones;
+    for (final dynamic option in options) {
+      final String value = option.value as String;
+      final String label = option.label as String;
+      if (rawValue == value || rawValue.toLowerCase() == label.toLowerCase()) {
+        _aseguradoraCatalogKey = value;
+        _aseguradoraController.text = label;
+        return;
+      }
+    }
+
+    _aseguradoraCatalogKey = null;
+  }
+
+  void _onTipoAseguramientoChanged(TipoAseguramiento? value) {
+    _tipoAseguramiento = value;
+
+    if (value == TipoAseguramiento.particular) {
+      _aseguradoraCatalogKey = null;
+      _aseguradoraController.text = 'Particular';
+      return;
+    }
+
+    if (value == TipoAseguramiento.otro) {
+      _aseguradoraCatalogKey = null;
+      if (_aseguradoraController.text.trim().toLowerCase() == 'particular') {
+        _aseguradoraController.clear();
+      }
+      return;
+    }
+
+    final List<dynamic> options = _aseguradoraOpciones;
+    final bool hasSelected = options.any(
+      (dynamic option) => option.value == _aseguradoraCatalogKey,
+    );
+
+    if (!hasSelected) {
+      _aseguradoraCatalogKey = null;
+      _aseguradoraController.clear();
+    }
+  }
+
+  List<T> _sortedByLabel<T>(
+    Iterable<T> values,
+    String Function(T value) labelOf,
+  ) {
+    final List<T> sorted = values.toList();
+    bool isOtherLabel(String label) {
+      final String normalized = label.trim().toLowerCase();
+      return normalized.startsWith('otro') || normalized.startsWith('otra');
+    }
+
+    sorted.sort((T a, T b) {
+      final String labelA = labelOf(a);
+      final String labelB = labelOf(b);
+      final bool isOtherA = isOtherLabel(labelA);
+      final bool isOtherB = isOtherLabel(labelB);
+
+      if (isOtherA && !isOtherB) return 1;
+      if (!isOtherA && isOtherB) return -1;
+      return labelA.toLowerCase().compareTo(labelB.toLowerCase());
+    });
+    return sorted;
+  }
+
+  EspecialidadPrincipalTratante? _especialidadFromLabel(String? label) {
+    if (label == null || label.trim().isEmpty) return null;
+    for (final EspecialidadPrincipalTratante value
+        in EspecialidadPrincipalTratante.values) {
+      if (_especialidadPrincipalTratanteLabel(value).toLowerCase() ==
+          label.trim().toLowerCase()) {
+        return value;
+      }
+    }
+    return null;
+  }
+
   InputDecoration _inputDecoration(String label, {bool fixedHeight = true}) {
     return InputDecoration(
       hintText: label,
       floatingLabelBehavior: FloatingLabelBehavior.never,
       isDense: true,
       filled: true,
-      fillColor: const Color(0xFFF7F8FA),
+      fillColor: _surfaceBase,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       constraints: fixedHeight
           ? const BoxConstraints(minHeight: 40, maxHeight: 40)
@@ -604,19 +1136,19 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
         fontSize: 14,
         fontWeight: FontWeight.w400,
         height: 1.15,
-        color: Color(0xFF8A94A6),
+        color: _textSecondary,
       ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFFD2DAE3)),
+        borderSide: const BorderSide(color: _borderSoft),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFFD2DAE3)),
+        borderSide: const BorderSide(color: _borderSoft),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFF06B6D4), width: 1.0),
+        borderSide: const BorderSide(color: _brandPrimary, width: 1.2),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
@@ -678,6 +1210,57 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
     final String day = date.day.toString().padLeft(2, '0');
     final String month = date.month.toString().padLeft(2, '0');
     return '$day/$month/${date.year}';
+  }
+
+  OrigenPaciente? _origenFromServicio(ServicioQuePresenta? servicio) {
+    switch (servicio) {
+      case ServicioQuePresenta.urgencias:
+        return OrigenPaciente.urgencias;
+      case ServicioQuePresenta.hospitalizacionSanFernando:
+        return OrigenPaciente.hospitalizacionSanFernando;
+      case ServicioQuePresenta.hospitalizacionMariaAuxiliadora:
+        return OrigenPaciente.hospitalizacionMariaAuxiliadora;
+      case ServicioQuePresenta.hospitalizacion:
+        return OrigenPaciente.hospitalizacion;
+      case ServicioQuePresenta.uci:
+        return OrigenPaciente.uci;
+      case ServicioQuePresenta.cirugia:
+        return OrigenPaciente.cirugia;
+      case ServicioQuePresenta.consultaExterna:
+        return OrigenPaciente.consultaExterna;
+      case ServicioQuePresenta.otro:
+        return OrigenPaciente.otro;
+      case null:
+        return null;
+    }
+  }
+
+  void _autocompletarOrigenDesdeServicioSiAplica() {
+    if (_tipoCaptacionPad != TipoCaptacionPad.presentadoPorServicio) return;
+
+    final OrigenPaciente? origenSugerido = _origenFromServicio(
+      _servicioQuePresenta,
+    );
+    if (origenSugerido == null) return;
+
+    final bool origenSinValor = _origenPaciente == null;
+    final bool origenNoEditado = !_origenPacienteEditadoManualmente;
+    final bool origenEsUltimoAutocompletado =
+        _ultimoOrigenAutocompletado != null &&
+        _origenPaciente == _ultimoOrigenAutocompletado;
+
+    if (origenSinValor || origenNoEditado || origenEsUltimoAutocompletado) {
+      _origenPaciente = origenSugerido;
+      _syncUnidadFuncionalOrigenDesdeOrigen();
+      _ultimoOrigenAutocompletado = origenSugerido;
+      _origenPacienteEditadoManualmente = false;
+    }
+  }
+
+  void _syncUnidadFuncionalOrigenDesdeOrigen() {
+    _unidadFuncionalOrigenController.text = _origenPaciente == null
+        ? ''
+        : _origenPacienteLabel(_origenPaciente!);
   }
 
   String? _dateIso(DateTime? date) {
@@ -846,6 +1429,9 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
     } else if (_decision == DecisionPad.ingresoNoAprobado) {
       situacion = 'No ingreso';
     }
+    if (_isEditing && _esReingreso) {
+      situacion = PadCareSituationLabels.readmission;
+    }
 
     final PadCaseRecord record = PadCaseRecord(
       motivoIngresoPrincipal: _selectedAdmissionReason,
@@ -881,9 +1467,7 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
               _formatDate(value),
               style: TextStyle(
                 fontSize: 14,
-                color: value == null
-                    ? const Color(0xFF7A869A)
-                    : const Color(0xFF243247),
+                color: value == null ? const Color(0xFF7A869A) : _textPrimary,
               ),
             ),
           ],
@@ -956,26 +1540,25 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                     fontSize: 14,
                     fontWeight: FontWeight.w400,
                     height: 1.15,
-                    color: Color(0xFF1C2228),
+                    color: _textPrimary,
                   ),
                 ),
                 selected: selected,
                 onSelected: (_) => _toggleAdmissionReason(option),
                 showCheckmark: false,
                 labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
-                side: BorderSide(
-                  color: selected
-                      ? const Color(0xFF06B6D4)
-                      : const Color(0xFFD2DAE3),
-                ),
+                side: BorderSide(color: selected ? _brandPrimary : _borderSoft),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                backgroundColor: const Color(0xFFF7F8FA),
-                selectedColor: const Color(0xFFE8F8FC),
+                backgroundColor: _surfaceBase,
+                selectedColor: const Color(0xFFE8F3F1),
               );
             }).toList(),
           ),
@@ -1120,7 +1703,7 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                   '$_heridasSesionesPendientes',
                   style: const TextStyle(
                     fontSize: 14,
-                    color: Color(0xFF243247),
+                    color: Color(0xFF1F2937),
                   ),
                 ),
               ),
@@ -1138,7 +1721,7 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                   _formatDateOrDash(_proximaSesionHeridas),
                   style: const TextStyle(
                     fontSize: 14,
-                    color: Color(0xFF243247),
+                    color: Color(0xFF1F2937),
                   ),
                 ),
               ),
@@ -1197,9 +1780,9 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFF7F9FB),
+                color: _surfaceBase,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFDCE3EA)),
+                border: Border.all(color: _borderSoft),
               ),
               child: Column(
                 children: <Widget>[
@@ -1275,7 +1858,7 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                                 },
                                 icon: const Icon(
                                   Icons.add,
-                                  color: Color(0xFF1E3A66),
+                                  color: _brandPrimary,
                                 ),
                               ),
                               IconButton(
@@ -1320,399 +1903,887 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
 
   @override
   Widget build(BuildContext context) {
+    final AppUser? appUser = context.watch<AuthNotifier?>()?.appUser;
     final summary = mapPadSummary(_buildPadCaseDataPreview());
+    final String nombre = _nombreCompletoController.text.trim();
+    final String identificacion = _identificacionController.text.trim();
+    final bool hasPatientContext =
+        nombre.isNotEmpty || identificacion.isNotEmpty;
+    final bool showLocationContactSection =
+        _isEditing && (appUser?.isAuxiliarAdministrativa ?? false);
 
-    return Column(
-      children: <Widget>[
-        Expanded(
-          child: Form(
-            key: _formKey,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-              children: <Widget>[
-                _SectionCard(
-                  title: 'Resumen PAD compacto',
-                  child: PadSummaryCompact(vm: summary),
-                ),
-                const SizedBox(height: 16),
-                _SectionCard(
-                  title: 'Datos básicos',
-                  child: _AdaptiveFieldsRow(
-                    children: <_FieldItem>[
-                      _FieldItem(
-                        flex: 32,
-                        child: TextFormField(
-                          controller: _nombreCompletoController,
-                          decoration: _inputDecoration('Nombre completo'),
-                          validator: (String? value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Campo obligatorio';
-                            }
-                            return null;
-                          },
+    return ColoredBox(
+      color: _surfaceMuted,
+      child: Column(
+        children: <Widget>[
+          Expanded(
+            child: Form(
+              key: _formKey,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
+                children: <Widget>[
+                  if (_isEditing && hasPatientContext) ...<Widget>[
+                    _SectionCard(
+                      title: 'Paciente en edición',
+                      child: Text(
+                        'Paciente: ${nombre.isEmpty ? '--' : nombre} · ${identificacion.isEmpty ? '--' : identificacion}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: _textPrimary,
                         ),
                       ),
-                      _FieldItem(
-                        flex: 22,
-                        child: TextFormField(
-                          controller: _identificacionController,
-                          decoration: _inputDecoration('Identificación'),
-                          validator: (String? value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Campo obligatorio';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      _FieldItem(
-                        flex: 10,
-                        child: DropdownButtonFormField<SexoPaciente>(
-                          initialValue: _sexo,
-                          decoration: _inputDecoration('Sexo'),
-                          items: SexoPaciente.values
-                              .map(
-                                (SexoPaciente value) =>
-                                    DropdownMenuItem<SexoPaciente>(
-                                      value: value,
-                                      child: Text(_sexoPacienteLabel(value)),
-                                    ),
-                              )
-                              .toList(),
-                          onChanged: (SexoPaciente? value) {
-                            setState(() => _sexo = value);
-                          },
-                          validator: (SexoPaciente? value) {
-                            if (value == null) return 'Campo obligatorio';
-                            return null;
-                          },
-                        ),
-                      ),
-                      _FieldItem(
-                        flex: 8,
-                        child: TextFormField(
-                          controller: _edadController,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: <TextInputFormatter>[
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          decoration: _inputDecoration('Edad'),
-                          validator: (String? value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Campo obligatorio';
-                            }
-                            final int? edad = int.tryParse(value.trim());
-                            if (edad == null) return 'Edad inválida';
-                            if (edad < 0 || edad > 120) return 'Edad inválida';
-                            return null;
-                          },
-                        ),
-                      ),
-                    ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  _SectionCard(
+                    title: 'Resumen PAD compacto',
+                    child: PadSummaryCompact(vm: summary),
                   ),
-                ),
-                const SizedBox(height: 16),
-                _SectionCard(
-                  title: 'Aseguramiento',
-                  child: _AdaptiveFieldsRow(
-                    children: <_FieldItem>[
-                      _FieldItem(
-                        flex: 16,
-                        child: DropdownButtonFormField<TipoAseguramiento>(
-                          initialValue: _tipoAseguramiento,
-                          decoration: _inputDecoration('Tipo'),
-                          items: TipoAseguramiento.values
-                              .map(
-                                (TipoAseguramiento value) =>
-                                    DropdownMenuItem<TipoAseguramiento>(
-                                      value: value,
-                                      child: Text(
-                                        _tipoAseguramientoLabel(value),
-                                      ),
-                                    ),
-                              )
-                              .toList(),
-                          onChanged: (TipoAseguramiento? value) {
-                            setState(() => _tipoAseguramiento = value);
-                          },
-                        ),
-                      ),
-                      _FieldItem(
-                        flex: 36,
-                        child: TextFormField(
-                          controller: _aseguradoraController,
-                          decoration: _inputDecoration('Aseguradora'),
-                        ),
-                      ),
-                      _FieldItem(
-                        flex: 16,
-                        child: DropdownButtonFormField<RegimenAseguramiento>(
-                          initialValue: _regimenAseguramiento,
-                          decoration: _inputDecoration('Régimen'),
-                          items: RegimenAseguramiento.values
-                              .map(
-                                (RegimenAseguramiento value) =>
-                                    DropdownMenuItem<RegimenAseguramiento>(
-                                      value: value,
-                                      child: Text(
-                                        _regimenAseguramientoLabel(value),
-                                      ),
-                                    ),
-                              )
-                              .toList(),
-                          onChanged: (RegimenAseguramiento? value) {
-                            setState(() => _regimenAseguramiento = value);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _SectionCard(
-                  title: 'Captación PAD',
-                  child: Column(
-                    children: <Widget>[
-                      _AdaptiveFieldsRow(
-                        children: <_FieldItem>[
-                          _FieldItem(
-                            flex: 24,
-                            child: DropdownButtonFormField<TipoCaptacionPad>(
-                              initialValue: _tipoCaptacionPad,
-                              decoration: _inputDecoration(
-                                'Tipo de captación PAD',
-                              ),
-                              items: TipoCaptacionPad.values
-                                  .map(
-                                    (TipoCaptacionPad value) =>
-                                        DropdownMenuItem<TipoCaptacionPad>(
-                                          value: value,
-                                          child: Text(
-                                            _tipoCaptacionPadLabel(value),
-                                          ),
-                                        ),
-                                  )
-                                  .toList(),
-                              onChanged: (TipoCaptacionPad? value) {
-                                setState(() {
-                                  _tipoCaptacionPad = value;
-                                  if (value !=
-                                      TipoCaptacionPad.presentadoPorServicio) {
-                                    _servicioQuePresenta = null;
-                                  }
-                                });
-                              },
-                              validator: (TipoCaptacionPad? value) {
-                                if (value == null) return 'Campo obligatorio';
-                                return null;
-                              },
-                            ),
-                          ),
-                          if (_tipoCaptacionPad ==
-                              TipoCaptacionPad.presentadoPorServicio)
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: 'Datos básicos',
+                    child: Column(
+                      children: <Widget>[
+                        _AdaptiveFieldsRow(
+                          children: <_FieldItem>[
                             _FieldItem(
                               flex: 24,
-                              child:
-                                  DropdownButtonFormField<ServicioQuePresenta>(
-                                    key: const ValueKey(
-                                      'servicio_que_presenta',
-                                    ),
-                                    initialValue: _servicioQuePresenta,
-                                    decoration: _inputDecoration(
-                                      'Servicio que presenta',
-                                    ),
-                                    items: ServicioQuePresenta.values
+                              child: TextFormField(
+                                controller: _nombreCompletoController,
+                                decoration: _inputDecoration('Nombre completo'),
+                                validator: (String? value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Campo obligatorio';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                            _FieldItem(
+                              flex: 20,
+                              child: TextFormField(
+                                controller: _identificacionController,
+                                decoration: _inputDecoration('Identificación'),
+                                validator: (String? value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Campo obligatorio';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                            _FieldItem(
+                              flex: 14,
+                              child: Autocomplete<String>(
+                                optionsBuilder:
+                                    (TextEditingValue textEditingValue) {
+                                  final String query = textEditingValue.text
+                                      .trim()
+                                      .toLowerCase();
+                                  if (query.isEmpty) return _barrioOptions;
+                                  return _barrioOptions.where(
+                                    (String b) =>
+                                        b.toLowerCase().contains(query),
+                                  );
+                                },
+                                displayStringForOption: (String value) => value,
+                                onSelected: (String value) {
+                                  setState(() {
+                                    _barrioSeleccionado = value;
+                                    _barrioSearchController.text = value;
+                                    if (value != _barrioOtro) {
+                                      _barrioController.text = value;
+                                    } else if (_barrioOptions.contains(
+                                      _barrioController.text.trim(),
+                                    )) {
+                                      _barrioController.clear();
+                                    }
+                                  });
+                                },
+                                fieldViewBuilder: (
+                                  BuildContext ctx,
+                                  TextEditingController autoCtrl,
+                                  FocusNode focusNode,
+                                  VoidCallback onFieldSubmitted,
+                                ) {
+                                  if (autoCtrl.text !=
+                                      _barrioSearchController.text) {
+                                    autoCtrl.text =
+                                        _barrioSearchController.text;
+                                  }
+                                  return TextFormField(
+                                    controller: autoCtrl,
+                                    focusNode: focusNode,
+                                    decoration: _inputDecoration('Barrio'),
+                                    onChanged: (String value) {
+                                      _barrioSearchController.text = value;
+                                      setState(() {
+                                        if (_barrioOptions.contains(value) &&
+                                            value != _barrioOtro) {
+                                          _barrioSeleccionado = value;
+                                          _barrioController.text = value;
+                                        } else {
+                                          _barrioSeleccionado = null;
+                                        }
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                            _FieldItem(
+                              flex: 8,
+                              child: DropdownButtonFormField<SexoPaciente>(
+                                initialValue: _sexo,
+                                decoration: _inputDecoration('Sexo'),
+                                items:
+                                    _sortedByLabel<SexoPaciente>(
+                                          SexoPaciente.values,
+                                          _sexoPacienteLabel,
+                                        )
                                         .map(
-                                          (ServicioQuePresenta value) =>
-                                              DropdownMenuItem<
-                                                ServicioQuePresenta
-                                              >(
+                                          (SexoPaciente value) =>
+                                              DropdownMenuItem<SexoPaciente>(
                                                 value: value,
                                                 child: Text(
-                                                  _servicioQuePresentaLabel(
-                                                    value,
-                                                  ),
+                                                  _sexoPacienteLabel(value),
                                                 ),
                                               ),
                                         )
                                         .toList(),
-                                    onChanged: (ServicioQuePresenta? value) {
-                                      setState(
-                                        () => _servicioQuePresenta = value,
-                                      );
+                                onChanged: (SexoPaciente? value) {
+                                  setState(() => _sexo = value);
+                                },
+                                validator: (SexoPaciente? value) {
+                                  if (value == null) return 'Campo obligatorio';
+                                  return null;
+                                },
+                              ),
+                            ),
+                            _FieldItem(
+                              flex: 6,
+                              child: TextFormField(
+                                controller: _edadController,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: <TextInputFormatter>[
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                decoration: _inputDecoration('Edad'),
+                                validator: (String? value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Campo obligatorio';
+                                  }
+                                  final int? edad = int.tryParse(value.trim());
+                                  if (edad == null) {
+                                    return 'Edad inválida';
+                                  }
+                                  if (edad < 0 || edad > 120) {
+                                    return 'Edad inválida';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_barrioSeleccionado == _barrioOtro) ...<Widget>[
+                          const SizedBox(height: 14),
+                          TextFormField(
+                            controller: _barrioController,
+                            decoration: _inputDecoration('Especifique barrio'),
+                            validator: (String? value) {
+                              if (_barrioSeleccionado == _barrioOtro &&
+                                  (value == null || value.trim().isEmpty)) {
+                                return 'Campo obligatorio';
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: 'Aseguramiento',
+                    child: _AdaptiveFieldsRow(
+                      children: <_FieldItem>[
+                        _FieldItem(
+                          flex: 16,
+                          child: DropdownButtonFormField<TipoAseguramiento>(
+                            initialValue: _tipoAseguramiento,
+                            decoration: _inputDecoration('Tipo'),
+                            items:
+                                _sortedByLabel<TipoAseguramiento>(
+                                      TipoAseguramiento.values,
+                                      _tipoAseguramientoLabel,
+                                    )
+                                    .map(
+                                      (TipoAseguramiento value) =>
+                                          DropdownMenuItem<TipoAseguramiento>(
+                                            value: value,
+                                            child: Text(
+                                              _tipoAseguramientoLabel(value),
+                                            ),
+                                          ),
+                                    )
+                                    .toList(),
+                            onChanged: (TipoAseguramiento? value) {
+                              setState(
+                                () => _onTipoAseguramientoChanged(value),
+                              );
+                            },
+                          ),
+                        ),
+                        _FieldItem(
+                          flex: 36,
+                          child: () {
+                            if (_tipoAseguramiento ==
+                                TipoAseguramiento.particular) {
+                              return TextFormField(
+                                controller: _aseguradoraController,
+                                readOnly: true,
+                                decoration: _inputDecoration('Aseguradora'),
+                              );
+                            }
+
+                            if (_tipoAseguramiento == TipoAseguramiento.otro) {
+                              return TextFormField(
+                                controller: _aseguradoraController,
+                                decoration: _inputDecoration(
+                                  'Especificar entidad',
+                                ),
+                              );
+                            }
+
+                            final List<dynamic> options = _aseguradoraOpciones;
+                            if (options.isNotEmpty) {
+                              return DropdownButtonFormField<String>(
+                                initialValue:
+                                    options.any(
+                                      (dynamic option) =>
+                                          option.value ==
+                                          _aseguradoraCatalogKey,
+                                    )
+                                    ? _aseguradoraCatalogKey
+                                    : null,
+                                decoration: _inputDecoration('Aseguradora'),
+                                items: options
+                                    .map(
+                                      (dynamic option) =>
+                                          DropdownMenuItem<String>(
+                                            value: option.value as String,
+                                            child: Text(option.label as String),
+                                          ),
+                                    )
+                                    .toList(),
+                                onChanged: (String? selectedKey) {
+                                  setState(() {
+                                    _aseguradoraCatalogKey = selectedKey;
+                                    if (selectedKey == null) {
+                                      _aseguradoraController.clear();
+                                      return;
+                                    }
+                                    final dynamic match = options.firstWhere(
+                                      (dynamic option) =>
+                                          option.value == selectedKey,
+                                    );
+                                    _aseguradoraController.text =
+                                        match.label as String;
+                                  });
+                                },
+                              );
+                            }
+
+                            return TextFormField(
+                              controller: _aseguradoraController,
+                              enabled: false,
+                              decoration: _inputDecoration('Aseguradora'),
+                            );
+                          }(),
+                        ),
+                        _FieldItem(
+                          flex: 16,
+                          child: DropdownButtonFormField<RegimenAseguramiento>(
+                            initialValue: _regimenAseguramiento,
+                            decoration: _inputDecoration('Régimen'),
+                            items:
+                                _sortedByLabel<RegimenAseguramiento>(
+                                      RegimenAseguramiento.values,
+                                      _regimenAseguramientoLabel,
+                                    )
+                                    .map(
+                                      (RegimenAseguramiento value) =>
+                                          DropdownMenuItem<
+                                            RegimenAseguramiento
+                                          >(
+                                            value: value,
+                                            child: Text(
+                                              _regimenAseguramientoLabel(value),
+                                            ),
+                                          ),
+                                    )
+                                    .toList(),
+                            onChanged: (RegimenAseguramiento? value) {
+                              setState(() => _regimenAseguramiento = value);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: 'Captación PAD',
+                    child: Column(
+                      children: <Widget>[
+                        _AdaptiveFieldsRow(
+                          children: <_FieldItem>[
+                            _FieldItem(
+                              flex: 24,
+                              child: DropdownButtonFormField<TipoCaptacionPad>(
+                                initialValue: _tipoCaptacionPad,
+                                decoration: _inputDecoration(
+                                  'Tipo de captación PAD',
+                                ),
+                                items:
+                                    _sortedByLabel<TipoCaptacionPad>(
+                                          TipoCaptacionPad.values,
+                                          _tipoCaptacionPadLabel,
+                                        )
+                                        .map(
+                                          (TipoCaptacionPad value) =>
+                                              DropdownMenuItem<
+                                                TipoCaptacionPad
+                                              >(
+                                                value: value,
+                                                child: Text(
+                                                  _tipoCaptacionPadLabel(value),
+                                                ),
+                                              ),
+                                        )
+                                        .toList(),
+                                onChanged: (TipoCaptacionPad? value) {
+                                  setState(() {
+                                    _tipoCaptacionPad = value;
+                                    if (value !=
+                                        TipoCaptacionPad
+                                            .presentadoPorServicio) {
+                                      _servicioQuePresenta = null;
+                                      _ultimoOrigenAutocompletado = null;
+                                    } else {
+                                      _autocompletarOrigenDesdeServicioSiAplica();
+                                    }
+                                  });
+                                },
+                                validator: (TipoCaptacionPad? value) {
+                                  if (value == null) return 'Campo obligatorio';
+                                  return null;
+                                },
+                              ),
+                            ),
+                            if (_tipoCaptacionPad ==
+                                TipoCaptacionPad.presentadoPorServicio)
+                              _FieldItem(
+                                flex: 24,
+                                child: DropdownButtonFormField<ServicioQuePresenta>(
+                                  key: const ValueKey('servicio_que_presenta'),
+                                  initialValue: _servicioQuePresenta,
+                                  decoration: _inputDecoration(
+                                    'Servicio que presenta',
+                                  ),
+                                  items:
+                                      _sortedByLabel<ServicioQuePresenta>(
+                                            _servicioQuePresentaOptions,
+                                            _servicioQuePresentaLabel,
+                                          )
+                                          .map(
+                                            (ServicioQuePresenta value) =>
+                                                DropdownMenuItem<
+                                                  ServicioQuePresenta
+                                                >(
+                                                  value: value,
+                                                  child: Text(
+                                                    _servicioQuePresentaLabel(
+                                                      value,
+                                                    ),
+                                                  ),
+                                                ),
+                                          )
+                                          .toList(),
+                                  onChanged: (ServicioQuePresenta? value) {
+                                    setState(() {
+                                      _servicioQuePresenta = value;
+                                      _autocompletarOrigenDesdeServicioSiAplica();
+                                    });
+                                  },
+                                  validator: (ServicioQuePresenta? value) {
+                                    if (_tipoCaptacionPad ==
+                                            TipoCaptacionPad
+                                                .presentadoPorServicio &&
+                                        value == null) {
+                                      return 'Campo obligatorio';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: 'Contexto clínico',
+                    child: Column(
+                      children: <Widget>[
+                        _AdaptiveFieldsRow(
+                          children: <_FieldItem>[
+                            _FieldItem(
+                              flex: 18,
+                              child: Column(
+                                children: <Widget>[
+                                  Autocomplete<EspecialidadPrincipalTratante>(
+                                    optionsBuilder:
+                                        (TextEditingValue textEditingValue) {
+                                          final String query = textEditingValue
+                                              .text
+                                              .trim()
+                                              .toLowerCase();
+                                          final List<
+                                            EspecialidadPrincipalTratante
+                                          >
+                                          options =
+                                              _sortedByLabel<
+                                                EspecialidadPrincipalTratante
+                                              >(
+                                                EspecialidadPrincipalTratante
+                                                    .values,
+                                                _especialidadPrincipalTratanteLabel,
+                                              );
+                                          if (query.isEmpty) {
+                                            return options;
+                                          }
+                                          return options.where(
+                                            (
+                                              EspecialidadPrincipalTratante
+                                              value,
+                                            ) =>
+                                                _especialidadPrincipalTratanteLabel(
+                                                  value,
+                                                ).toLowerCase().contains(query),
+                                          );
+                                        },
+                                    displayStringForOption:
+                                        _especialidadPrincipalTratanteLabel,
+                                    onSelected:
+                                        (EspecialidadPrincipalTratante value) {
+                                          setState(() {
+                                            _especialidadPrincipalTratante =
+                                                value;
+                                            _especialidadBusquedaController
+                                                    .text =
+                                                _especialidadPrincipalTratanteLabel(
+                                                  value,
+                                                );
+                                            if (value !=
+                                                EspecialidadPrincipalTratante
+                                                    .otra) {
+                                              _especialidadManualController
+                                                  .clear();
+                                            }
+                                          });
+                                        },
+                                    fieldViewBuilder:
+                                        (
+                                          BuildContext context,
+                                          TextEditingController
+                                          textEditingController,
+                                          FocusNode focusNode,
+                                          VoidCallback onFieldSubmitted,
+                                        ) {
+                                          if (textEditingController.text !=
+                                              _especialidadBusquedaController
+                                                  .text) {
+                                            textEditingController.text =
+                                                _especialidadBusquedaController
+                                                    .text;
+                                          }
+                                          return TextFormField(
+                                            controller: textEditingController,
+                                            focusNode: focusNode,
+                                            decoration: _inputDecoration(
+                                              'Especialidad',
+                                            ),
+                                            onChanged: (String value) {
+                                              _especialidadBusquedaController
+                                                      .text =
+                                                  value;
+                                              final EspecialidadPrincipalTratante?
+                                              match = _especialidadFromLabel(
+                                                value,
+                                              );
+                                              setState(() {
+                                                _especialidadPrincipalTratante =
+                                                    match;
+                                                if (match !=
+                                                    EspecialidadPrincipalTratante
+                                                        .otra) {
+                                                  _especialidadManualController
+                                                      .clear();
+                                                }
+                                              });
+                                            },
+                                            validator: (String? value) {
+                                              if (_especialidadPrincipalTratante ==
+                                                  null) {
+                                                return 'Seleccione una especialidad';
+                                              }
+                                              return null;
+                                            },
+                                          );
+                                        },
+                                  ),
+                                  if (_especialidadPrincipalTratante ==
+                                      EspecialidadPrincipalTratante
+                                          .otra) ...<Widget>[
+                                    const SizedBox(height: 10),
+                                    TextFormField(
+                                      controller: _especialidadManualController,
+                                      decoration: _inputDecoration(
+                                        'Especifique la especialidad',
+                                      ),
+                                      validator: (String? value) {
+                                        if (_especialidadPrincipalTratante ==
+                                                EspecialidadPrincipalTratante
+                                                    .otra &&
+                                            (value == null ||
+                                                value.trim().isEmpty)) {
+                                          return 'Campo obligatorio';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            _FieldItem(
+                              flex: 34,
+                              child: TextFormField(
+                                controller: _diagnosticoController,
+                                decoration: _inputDecoration('Diagnóstico'),
+                                validator: (String? value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Campo obligatorio';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                            _FieldItem(
+                              flex: 22,
+                              child: Column(
+                                children: <Widget>[
+                                  DropdownButtonFormField<String>(
+                                    initialValue: _grupoRiesgoSeleccionado,
+                                    decoration: _inputDecoration(
+                                      'Grupo relacionado de riesgo (GRD)',
+                                    ),
+                                    items: _grupoRiesgoOptions
+                                        .map(
+                                          (String value) =>
+                                              DropdownMenuItem<String>(
+                                                value: value,
+                                                child: Text(value),
+                                              ),
+                                        )
+                                        .toList(),
+                                    onChanged: (String? value) {
+                                      setState(() {
+                                        _grupoRiesgoSeleccionado = value;
+                                        if (value == null) {
+                                          _grupoRiesgoController.clear();
+                                          return;
+                                        }
+                                        if (value != _grupoRiesgoOtro) {
+                                          _grupoRiesgoController.text = value;
+                                        } else if (_grupoRiesgoOptions.contains(
+                                          _grupoRiesgoController.text.trim(),
+                                        )) {
+                                          _grupoRiesgoController.clear();
+                                        }
+                                      });
                                     },
-                                    validator: (ServicioQuePresenta? value) {
-                                      if (_tipoCaptacionPad ==
-                                              TipoCaptacionPad
-                                                  .presentadoPorServicio &&
-                                          value == null) {
+                                    validator: (String? value) {
+                                      if (value == null ||
+                                          value.trim().isEmpty) {
+                                        return 'Campo obligatorio';
+                                      }
+                                      if (value == _grupoRiesgoOtro &&
+                                          _grupoRiesgoController.text
+                                              .trim()
+                                              .isEmpty) {
+                                        return 'Especifique el grupo';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  if (_grupoRiesgoSeleccionado ==
+                                      _grupoRiesgoOtro) ...<Widget>[
+                                    const SizedBox(height: 10),
+                                    TextFormField(
+                                      controller: _grupoRiesgoController,
+                                      decoration: _inputDecoration(
+                                        'Especifique grupo de riesgo',
+                                      ),
+                                      validator: (String? value) {
+                                        if (_grupoRiesgoSeleccionado ==
+                                                _grupoRiesgoOtro &&
+                                            (value == null ||
+                                                value.trim().isEmpty)) {
+                                          return 'Campo obligatorio';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _AdaptiveFieldsRow(
+                          children: <_FieldItem>[
+                            _FieldItem(
+                              flex: 56,
+                              child: DropdownButtonFormField<OrigenPaciente>(
+                                initialValue: _origenPaciente,
+                                decoration: _inputDecoration(
+                                  'Origen del paciente',
+                                ),
+                                items:
+                                    _sortedByLabel<OrigenPaciente>(
+                                          _origenPacienteOptions,
+                                          _origenPacienteLabel,
+                                        )
+                                        .map(
+                                          (OrigenPaciente value) =>
+                                              DropdownMenuItem<OrigenPaciente>(
+                                                value: value,
+                                                child: Text(
+                                                  _origenPacienteLabel(value),
+                                                ),
+                                              ),
+                                        )
+                                        .toList(),
+                                onChanged: (OrigenPaciente? value) {
+                                  setState(() {
+                                    _origenPaciente = value;
+                                    _syncUnidadFuncionalOrigenDesdeOrigen();
+                                    _origenPacienteEditadoManualmente = true;
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _buildAdmissionReasonField(),
+                        _buildMotivoDetalleSection(),
+                      ],
+                    ),
+                  ),
+                  if (showLocationContactSection) ...<Widget>[
+                    const SizedBox(height: 16),
+                    _SectionCard(
+                      title: 'Ubicación y contacto',
+                      child: Column(
+                        children: <Widget>[
+                          _AdaptiveFieldsRow(
+                            children: <_FieldItem>[
+                              _FieldItem(
+                                flex: 56,
+                                child: TextFormField(
+                                  controller: _direccionController,
+                                  decoration: _inputDecoration('Dirección'),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _AdaptiveFieldsRow(
+                            children: <_FieldItem>[
+                              _FieldItem(
+                                flex: 30,
+                                child: TextFormField(
+                                  controller: _referenciaController,
+                                  decoration: _inputDecoration(
+                                    'Referencia de ubicación',
+                                  ),
+                                ),
+                              ),
+                              _FieldItem(
+                                flex: 17,
+                                child: TextFormField(
+                                  controller: _telefonoPrincipalController,
+                                  keyboardType: TextInputType.phone,
+                                  inputFormatters: <TextInputFormatter>[
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'[0-9+\-\s]'),
+                                    ),
+                                  ],
+                                  decoration: _inputDecoration(
+                                    'Teléfono principal',
+                                  ),
+                                ),
+                              ),
+                              _FieldItem(
+                                flex: 17,
+                                child: TextFormField(
+                                  controller: _telefonoAlternoController,
+                                  keyboardType: TextInputType.phone,
+                                  inputFormatters: <TextInputFormatter>[
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'[0-9+\-\s]'),
+                                    ),
+                                  ],
+                                  decoration: _inputDecoration(
+                                    'Teléfono alterno',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: 'Decisión',
+                    child: Column(
+                      children: <Widget>[
+                        _AdaptiveFieldsRow(
+                          children: <_FieldItem>[
+                            _FieldItem(
+                              flex: 20,
+                              child: DropdownButtonFormField<DecisionPad>(
+                                initialValue: _decision,
+                                decoration: _inputDecoration('Decisión'),
+                                items:
+                                    _sortedByLabel<DecisionPad>(
+                                          DecisionPad.values,
+                                          _decisionPadLabel,
+                                        )
+                                        .map(
+                                          (DecisionPad value) =>
+                                              DropdownMenuItem<DecisionPad>(
+                                                value: value,
+                                                child: Text(
+                                                  _decisionPadLabel(value),
+                                                ),
+                                              ),
+                                        )
+                                        .toList(),
+                                onChanged: (DecisionPad? value) {
+                                  setState(() => _decision = value);
+                                },
+                              ),
+                            ),
+                            _FieldItem(
+                              flex: 40,
+                              child: TextFormField(
+                                controller: _observacionesController,
+                                decoration: _inputDecoration('Observaciones'),
+                                maxLines: 1,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_isEditing) ...<Widget>[
+                          const SizedBox(height: 14),
+                          _AdaptiveFieldsRow(
+                            children: <_FieldItem>[
+                              _FieldItem(
+                                flex: 20,
+                                child: DropdownButtonFormField<bool>(
+                                  initialValue: _esReingreso,
+                                  decoration: _inputDecoration(
+                                    '¿Es reingreso?',
+                                  ),
+                                  items: const <DropdownMenuItem<bool>>[
+                                    DropdownMenuItem<bool>(
+                                      value: false,
+                                      child: Text('No'),
+                                    ),
+                                    DropdownMenuItem<bool>(
+                                      value: true,
+                                      child: Text('Sí'),
+                                    ),
+                                  ],
+                                  onChanged: (bool? value) {
+                                    setState(() {
+                                      _esReingreso = value ?? false;
+                                      if (!_esReingreso) {
+                                        _causaReingreso = null;
+                                      }
+                                    });
+                                  },
+                                ),
+                              ),
+                              if (_esReingreso)
+                                _FieldItem(
+                                  flex: 40,
+                                  child: DropdownButtonFormField<String>(
+                                    initialValue: _causaReingreso,
+                                    decoration: _inputDecoration(
+                                      'Causa del reingreso',
+                                    ),
+                                    items: _causaReingresoOptions
+                                        .map(
+                                          (String value) =>
+                                              DropdownMenuItem<String>(
+                                                value: value,
+                                                child: Text(value),
+                                              ),
+                                        )
+                                        .toList(),
+                                    onChanged: (String? value) {
+                                      setState(() => _causaReingreso = value);
+                                    },
+                                    validator: (String? value) {
+                                      if (_isEditing &&
+                                          _esReingreso &&
+                                          (value == null ||
+                                              value.trim().isEmpty)) {
                                         return 'Campo obligatorio';
                                       }
                                       return null;
                                     },
                                   ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _SectionCard(
-                  title: 'Contexto clínico',
-                  child: Column(
-                    children: <Widget>[
-                      _AdaptiveFieldsRow(
-                        children: <_FieldItem>[
-                          _FieldItem(
-                            flex: 18,
-                            child:
-                                DropdownButtonFormField<
-                                  EspecialidadPrincipalTratante
-                                >(
-                                  initialValue: _especialidadPrincipalTratante,
-                                  decoration: _inputDecoration('Especialidad'),
-                                  items: EspecialidadPrincipalTratante.values
-                                      .map(
-                                        (EspecialidadPrincipalTratante value) =>
-                                            DropdownMenuItem<
-                                              EspecialidadPrincipalTratante
-                                            >(
-                                              value: value,
-                                              child: Text(
-                                                _especialidadPrincipalTratanteLabel(
-                                                  value,
-                                                ),
-                                              ),
-                                            ),
-                                      )
-                                      .toList(),
-                                  onChanged:
-                                      (EspecialidadPrincipalTratante? value) {
-                                        setState(
-                                          () => _especialidadPrincipalTratante =
-                                              value,
-                                        );
-                                      },
                                 ),
-                          ),
-                          _FieldItem(
-                            flex: 34,
-                            child: TextFormField(
-                              controller: _diagnosticoController,
-                              decoration: _inputDecoration('Diagnóstico'),
-                              validator: (String? value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Campo obligatorio';
-                                }
-                                return null;
-                              },
-                            ),
-                          ),
-                          _FieldItem(
-                            flex: 22,
-                            child: TextFormField(
-                              controller: _grupoRiesgoController,
-                              decoration: _inputDecoration(
-                                'Grupo relacionado de riesgo',
-                              ),
-                              validator: (String? value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Campo obligatorio';
-                                }
-                                return null;
-                              },
-                            ),
+                            ],
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 16),
-                      _AdaptiveFieldsRow(
-                        children: <_FieldItem>[
-                          _FieldItem(
-                            flex: 56,
-                            child: DropdownButtonFormField<OrigenPaciente>(
-                              initialValue: _origenPaciente,
-                              decoration: _inputDecoration(
-                                'Origen del paciente',
-                              ),
-                              items: OrigenPaciente.values
-                                  .map(
-                                    (OrigenPaciente value) =>
-                                        DropdownMenuItem<OrigenPaciente>(
-                                          value: value,
-                                          child: Text(
-                                            _origenPacienteLabel(value),
-                                          ),
-                                        ),
-                                  )
-                                  .toList(),
-                              onChanged: (OrigenPaciente? value) {
-                                setState(() => _origenPaciente = value);
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      _buildAdmissionReasonField(),
-                      _buildMotivoDetalleSection(),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                _SectionCard(
-                  title: 'Decisión',
-                  child: _AdaptiveFieldsRow(
-                    children: <_FieldItem>[
-                      _FieldItem(
-                        flex: 18,
-                        child: TextFormField(
-                          controller: _unidadFuncionalOrigenController,
-                          decoration: _inputDecoration(
-                            'Unidad funcional origen',
-                          ),
-                        ),
-                      ),
-                      _FieldItem(
-                        flex: 16,
-                        child: DropdownButtonFormField<DecisionPad>(
-                          initialValue: _decision,
-                          decoration: _inputDecoration('Decisión'),
-                          items: DecisionPad.values
-                              .map(
-                                (DecisionPad value) =>
-                                    DropdownMenuItem<DecisionPad>(
-                                      value: value,
-                                      child: Text(_decisionPadLabel(value)),
-                                    ),
-                              )
-                              .toList(),
-                          onChanged: (DecisionPad? value) {
-                            setState(() => _decision = value);
-                          },
-                        ),
-                      ),
-                      _FieldItem(
-                        flex: 24,
-                        child: TextFormField(
-                          controller: _observacionesController,
-                          decoration: _inputDecoration('Observaciones'),
-                          maxLines: 1,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-        _BottomActionBar(
-          onGuardar: _guardar,
-          onAprobarIngreso: _aprobarIngreso,
-        ),
-      ],
+          _BottomActionBar(
+            isEditing: _isEditing,
+            onGuardar: _guardar,
+            onAprobarIngreso: _aprobarIngreso,
+            onCancelar: _cancelarEdicion,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1728,9 +2799,9 @@ class _SectionCard extends StatelessWidget {
     return Card(
       elevation: 0,
       margin: EdgeInsets.zero,
-      color: const Color(0xFFF2F4F7),
+      color: const Color(0xFFFFFFFF),
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: Color(0xFFD8DEE5)),
+        side: const BorderSide(color: Color(0xFFD9E2E7)),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Padding(
@@ -1742,7 +2813,7 @@ class _SectionCard extends StatelessWidget {
               title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFF2F3542),
+                color: const Color(0xFF1F2937),
               ),
             ),
             const SizedBox(height: 14),
@@ -1798,12 +2869,16 @@ class _AdaptiveFieldsRow extends StatelessWidget {
 }
 
 class _BottomActionBar extends StatelessWidget {
+  final bool isEditing;
   final VoidCallback onGuardar;
   final VoidCallback onAprobarIngreso;
+  final VoidCallback onCancelar;
 
   const _BottomActionBar({
+    required this.isEditing,
     required this.onGuardar,
     required this.onAprobarIngreso,
+    required this.onCancelar,
   });
 
   @override
@@ -1811,8 +2886,8 @@ class _BottomActionBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
       decoration: const BoxDecoration(
-        color: Color(0xFFF7F9FB),
-        border: Border(top: BorderSide(color: Color(0xFFD8DEE5))),
+        color: Color(0xFFF3F4F6),
+        border: Border(top: BorderSide(color: Color(0xFFD9E2E7))),
       ),
       child: SafeArea(
         top: false,
@@ -1822,27 +2897,40 @@ class _BottomActionBar extends StatelessWidget {
               child: FilledButton(
                 onPressed: onGuardar,
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E3A66),
+                  backgroundColor: const Color(0xFF17726D),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: const Text(PadUiLabels.saveCase),
+                child: Text(
+                  isEditing ? PadUiLabels.saveChanges : PadUiLabels.saveCase,
+                ),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: OutlinedButton(
-                onPressed: onAprobarIngreso,
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                child: const Text('Aprobar para ingreso'),
-              ),
+              child: isEditing
+                  ? OutlinedButton(
+                      onPressed: onCancelar,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(PadUiLabels.cancel),
+                    )
+                  : OutlinedButton(
+                      onPressed: onAprobarIngreso,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text('Aprobar para ingreso'),
+                    ),
             ),
           ],
         ),
@@ -1919,6 +3007,10 @@ String _servicioQuePresentaLabel(ServicioQuePresenta value) {
   switch (value) {
     case ServicioQuePresenta.urgencias:
       return 'Urgencias';
+    case ServicioQuePresenta.hospitalizacionSanFernando:
+      return 'Hospitalización San Fernando';
+    case ServicioQuePresenta.hospitalizacionMariaAuxiliadora:
+      return 'Hospitalización María Auxiliadora';
     case ServicioQuePresenta.hospitalizacion:
       return 'Hospitalización';
     case ServicioQuePresenta.uci:
@@ -1936,6 +3028,10 @@ String _origenPacienteLabel(OrigenPaciente value) {
   switch (value) {
     case OrigenPaciente.urgencias:
       return 'Urgencias';
+    case OrigenPaciente.hospitalizacionSanFernando:
+      return 'Hospitalización San Fernando';
+    case OrigenPaciente.hospitalizacionMariaAuxiliadora:
+      return 'Hospitalización María Auxiliadora';
     case OrigenPaciente.hospitalizacion:
       return 'Hospitalización';
     case OrigenPaciente.uci:
@@ -1953,16 +3049,62 @@ String _especialidadPrincipalTratanteLabel(
   EspecialidadPrincipalTratante value,
 ) {
   switch (value) {
+    case EspecialidadPrincipalTratante.cardiologia:
+      return 'Cardiología';
     case EspecialidadPrincipalTratante.medicinaInterna:
       return 'Medicina interna';
+    case EspecialidadPrincipalTratante.geriatria:
+      return 'Geriatría';
+    case EspecialidadPrincipalTratante.medicinaFamiliar:
+      return 'Medicina familiar';
+    case EspecialidadPrincipalTratante.neumologia:
+      return 'Neumología';
+    case EspecialidadPrincipalTratante.endocrinologia:
+      return 'Endocrinología';
+    case EspecialidadPrincipalTratante.nefrologia:
+      return 'Nefrología';
+    case EspecialidadPrincipalTratante.neurologia:
+      return 'Neurología';
+    case EspecialidadPrincipalTratante.gastroenterologia:
+      return 'Gastroenterología';
+    case EspecialidadPrincipalTratante.infectologia:
+      return 'Infectología';
+    case EspecialidadPrincipalTratante.hematologia:
+      return 'Hematología';
+    case EspecialidadPrincipalTratante.oncologia:
+      return 'Oncología';
+    case EspecialidadPrincipalTratante.reumatologia:
+      return 'Reumatología';
+    case EspecialidadPrincipalTratante.dermatologia:
+      return 'Dermatología';
+    case EspecialidadPrincipalTratante.psiquiatria:
+      return 'Psiquiatría';
+    case EspecialidadPrincipalTratante.ortopediaTraumatologia:
+      return 'Ortopedia y traumatología';
     case EspecialidadPrincipalTratante.cirugiaGeneral:
       return 'Cirugía general';
-    case EspecialidadPrincipalTratante.ortopedia:
-      return 'Ortopedia';
+    case EspecialidadPrincipalTratante.cirugiaVascular:
+      return 'Cirugía vascular';
+    case EspecialidadPrincipalTratante.urologia:
+      return 'Urología';
     case EspecialidadPrincipalTratante.ginecologia:
       return 'Ginecología';
+    case EspecialidadPrincipalTratante.medicinaFisicaRehabilitacion:
+      return 'Medicina física y rehabilitación';
+    case EspecialidadPrincipalTratante.cuidadosPaliativos:
+      return 'Cuidados paliativos';
+    case EspecialidadPrincipalTratante.medicinaDelDolor:
+      return 'Medicina del dolor';
     case EspecialidadPrincipalTratante.pediatria:
       return 'Pediatría';
+    case EspecialidadPrincipalTratante.otorrinolaringologia:
+      return 'Otorrinolaringología';
+    case EspecialidadPrincipalTratante.oftalmologia:
+      return 'Oftalmología';
+    case EspecialidadPrincipalTratante.nutricionClinica:
+      return 'Nutrición clínica';
+    case EspecialidadPrincipalTratante.otra:
+      return 'Otra';
   }
 }
 

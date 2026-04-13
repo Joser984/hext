@@ -15,8 +15,8 @@ class PersonalScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final InMemoryPersonalRepo repo = context.watch<InMemoryPersonalRepo>();
-    final InMemoryNovedadesRepo novedadesRepo =
-        context.watch<InMemoryNovedadesRepo>();
+    final InMemoryNovedadesRepo novedadesRepo = context
+        .watch<InMemoryNovedadesRepo>();
     final List<AuxiliarDomiciliario> items = repo.items;
 
     return Container(
@@ -41,23 +41,9 @@ class PersonalScreen extends StatelessWidget {
                   title: 'Personal',
                   subtitle:
                       'Gestion de auxiliares, novedades laborales y estado operativo.',
-                  trailing: SizedBox(
-                    height: 40,
-                    child: FilledButton.icon(
-                      onPressed: () => _openForm(context),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF17726D),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Agregar auxiliar'),
-                    ),
-                  ),
                 ),
                 const SizedBox(height: 10),
-                const AgendaSubnav(section: AgendaSubnavSection.auxiliares),
+                _SubnavWithAction(onAdd: () => _openForm(context)),
                 const SizedBox(height: 12),
                 _HeaderSummary(items: items),
                 const SizedBox(height: 12),
@@ -71,13 +57,14 @@ class PersonalScreen extends StatelessWidget {
                             padding: const EdgeInsets.only(bottom: 10),
                             child: _AuxiliarCard(
                               auxiliar: item,
-                              novedadesActivas:
-                                  novedadesRepo.activeForAuxiliar(item.id),
-                              alertaVacaciones:
-                                  novedadesRepo.vacacionesVencidas(
-                                auxiliarId: item.id,
-                                fechaIngreso: item.fechaIngreso,
+                              novedadesActivas: novedadesRepo.activeForAuxiliar(
+                                item.id,
                               ),
+                              alertaVacaciones: novedadesRepo
+                                  .vacacionesVencidas(
+                                    auxiliarId: item.id,
+                                    fechaIngreso: item.fechaIngreso,
+                                  ),
                               onEdit: () => _openForm(context, auxiliar: item),
                               onDelete: () => _confirmDelete(context, item),
                               onToggleActivo: (bool value) {
@@ -129,9 +116,7 @@ class PersonalScreen extends StatelessWidget {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Eliminar auxiliar'),
-          content: Text(
-            '¿Deseas eliminar a ${auxiliar.nombreCompleto}?',
-          ),
+          content: Text('¿Deseas eliminar a ${auxiliar.nombreCompleto}?'),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -149,11 +134,9 @@ class PersonalScreen extends StatelessWidget {
     if (ok == true && context.mounted) {
       await context.read<InMemoryPersonalRepo>().deleteAuxiliar(auxiliar.id);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Auxiliar eliminado'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Auxiliar eliminado')));
       }
     }
   }
@@ -222,9 +205,9 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               'Aún no hay personal registrado',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
@@ -236,7 +219,7 @@ class _EmptyState extends StatelessWidget {
             FilledButton.icon(
               onPressed: onAdd,
               icon: const Icon(Icons.add),
-              label: const Text('Agregar auxiliar'),
+              label: const Text('Agregar personal'),
             ),
           ],
         ),
@@ -268,8 +251,8 @@ class _AuxiliarCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextStyle secondaryStyle =
         (Theme.of(context).textTheme.bodySmall ?? const TextStyle()).copyWith(
-      color: const Color(0xFF8A9199),
-    );
+          color: const Color(0xFF8A9199),
+        );
 
     return Container(
       decoration: BoxDecoration(
@@ -296,8 +279,8 @@ class _AuxiliarCard extends StatelessWidget {
                   child: Text(
                     auxiliar.nombreCompleto,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 Row(
@@ -306,8 +289,8 @@ class _AuxiliarCard extends StatelessWidget {
                     Text(
                       auxiliar.activo ? 'Activo' : 'Inactivo',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFF5C6370),
-                          ),
+                        color: const Color(0xFF5C6370),
+                      ),
                     ),
                     Switch.adaptive(
                       value: auxiliar.activo,
@@ -356,8 +339,8 @@ class _AuxiliarCard extends StatelessWidget {
                 runSpacing: 4,
                 children: novedadesActivas.length <= 2
                     ? novedadesActivas
-                        .map((NovedadLaboral n) => _NovedadBadge(novedad: n))
-                        .toList()
+                          .map((NovedadLaboral n) => _NovedadBadge(novedad: n))
+                          .toList()
                     : <Widget>[
                         _NovedadBadge(novedad: novedadesActivas.first),
                         _NovedadBadge(novedad: novedadesActivas[1]),
@@ -369,14 +352,11 @@ class _AuxiliarCard extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: const Color(0xFFF7F8FA),
                             borderRadius: BorderRadius.circular(6),
-                            border:
-                                Border.all(color: const Color(0xFFE3E7EC)),
+                            border: Border.all(color: const Color(0xFFE3E7EC)),
                           ),
                           child: Text(
                             '+${novedadesActivas.length - 2} mas',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
+                            style: Theme.of(context).textTheme.labelSmall
                                 ?.copyWith(color: const Color(0xFF5C6370)),
                           ),
                         ),
@@ -385,9 +365,7 @@ class _AuxiliarCard extends StatelessWidget {
             ],
             if (alertaVacaciones) ...<Widget>[
               const SizedBox(height: 6),
-              const _AlertaBadge(
-                text: 'Vacaciones pendientes por programar',
-              ),
+              const _AlertaBadge(text: 'Vacaciones pendientes por programar'),
             ],
             const SizedBox(height: 2),
             Row(
@@ -476,9 +454,9 @@ class _NovedadBadge extends StatelessWidget {
       child: Text(
         '${novedad.estado.label} · ${novedad.tipo.label}',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: fg,
-              fontWeight: FontWeight.w600,
-            ),
+          color: fg,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -510,9 +488,9 @@ class _AlertaBadge extends StatelessWidget {
           Text(
             text,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: const Color(0xFFB71C1C),
-                  fontWeight: FontWeight.w600,
-                ),
+              color: const Color(0xFFB71C1C),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -559,9 +537,7 @@ class _AuxiliarFormDialogState extends State<_AuxiliarFormDialog> {
     super.initState();
     final AuxiliarDomiciliario? item = widget.auxiliar;
 
-    _nombreController = TextEditingController(
-      text: item?.nombreCompleto ?? '',
-    );
+    _nombreController = TextEditingController(text: item?.nombreCompleto ?? '');
     _cargo = item?.cargo ?? _cargos.first;
     _modalidad = item?.modalidad ?? _modalidades.first;
     _fechaIngreso = item?.fechaIngreso;
@@ -710,9 +686,7 @@ class _AuxiliarFormDialogState extends State<_AuxiliarFormDialog> {
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          isEdit ? 'Auxiliar actualizado' : 'Auxiliar creado',
-        ),
+        content: Text(isEdit ? 'Auxiliar actualizado' : 'Auxiliar creado'),
       ),
     );
   }
@@ -748,10 +722,9 @@ class _DatePickerField extends StatelessWidget {
         child: Text(
           value != null ? _fmt(value!) : 'No especificada',
           style: value == null
-              ? Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: const Color(0xFFB0B7BF))
+              ? Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: const Color(0xFFB0B7BF))
               : null,
         ),
       ),
@@ -805,9 +778,9 @@ class _NovedadesDialog extends StatelessWidget {
           const Text('Novedades laborales'),
           Text(
             auxiliar.nombreCompleto,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF8A9199),
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: const Color(0xFF8A9199)),
           ),
         ],
       ),
@@ -829,11 +802,11 @@ class _NovedadesDialog extends StatelessWidget {
                     novedad: nov,
                     onMarcarDisfrutado:
                         (nov.estado == EstadoNovedad.pendiente ||
-                                nov.estado == EstadoNovedad.programado)
-                            ? () => context
-                                .read<InMemoryNovedadesRepo>()
-                                .marcarDisfrutado(nov.id)
-                            : null,
+                            nov.estado == EstadoNovedad.programado)
+                        ? () => context
+                              .read<InMemoryNovedadesRepo>()
+                              .marcarDisfrutado(nov.id)
+                        : null,
                     onDelete: () =>
                         context.read<InMemoryNovedadesRepo>().delete(nov.id),
                   );
@@ -880,8 +853,8 @@ class _NovedadTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextStyle secondary =
         (Theme.of(context).textTheme.bodySmall ?? const TextStyle()).copyWith(
-      color: const Color(0xFF8A9199),
-    );
+          color: const Color(0xFF8A9199),
+        );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -897,18 +870,19 @@ class _NovedadTile extends StatelessWidget {
                     Expanded(
                       child: Text(
                         novedad.tipo.label,
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodyMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     _EstadoChip(estado: novedad.estado),
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text('Causación: ${_fmt(novedad.fechaCausacion)}',
-                    style: secondary),
+                Text(
+                  'Causación: ${_fmt(novedad.fechaCausacion)}',
+                  style: secondary,
+                ),
                 if (novedad.fechaInicio != null && novedad.fechaFin != null)
                   Text(
                     'Período: ${_fmt(novedad.fechaInicio!)} – ${_fmt(novedad.fechaFin!)}',
@@ -976,10 +950,10 @@ class _EstadoChip extends StatelessWidget {
       ),
       child: Text(
         estado.label,
-        style: Theme.of(context)
-            .textTheme
-            .labelSmall
-            ?.copyWith(color: fg, fontWeight: FontWeight.w600),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: fg,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -1121,10 +1095,7 @@ class _AddNovedadDialogState extends State<_AddNovedadDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancelar'),
         ),
-        FilledButton(
-          onPressed: _save,
-          child: const Text('Registrar'),
-        ),
+        FilledButton(onPressed: _save, child: const Text('Registrar')),
       ],
     );
   }
@@ -1150,5 +1121,55 @@ class _AddNovedadDialogState extends State<_AddNovedadDialog> {
 
     if (!mounted) return;
     Navigator.of(context).pop();
+  }
+}
+
+class _SubnavWithAction extends StatelessWidget {
+  const _SubnavWithAction({required this.onAdd});
+
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final Widget actionButton = SizedBox(
+          height: 40,
+          child: FilledButton.icon(
+            onPressed: onAdd,
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF17726D),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Agregar personal'),
+          ),
+        );
+
+        if (constraints.maxWidth < 900) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const AgendaSubnav(section: AgendaSubnavSection.auxiliares),
+              const SizedBox(height: 10),
+              actionButton,
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            const Expanded(
+              child: AgendaSubnav(section: AgendaSubnavSection.auxiliares),
+            ),
+            const SizedBox(width: 12),
+            actionButton,
+          ],
+        );
+      },
+    );
   }
 }

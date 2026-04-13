@@ -22,3 +22,4 @@ samples, guidance on mobile development, and a full API reference.
 - Phase 4 short closure record: docs/fase4_acta_corta_cierre_resumen_pad.md
 - Functional validation baseline: docs/acta_validacion_funcional_pad.md
 - Executive traffic-light summary: docs/resumen_semaforo_ejecutivo_pad.md
+- HEXT brand mini-manual: docs/mini_manual_marca_hext.md
