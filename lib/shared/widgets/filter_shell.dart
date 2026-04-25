@@ -18,15 +18,15 @@ class FilterShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFCED7E1)),
         boxShadow: const <BoxShadow>[
           BoxShadow(
             color: Color(0x140D253F),
-            blurRadius: 12,
+            blurRadius: 10,
             offset: Offset(0, 2),
           ),
         ],
@@ -37,20 +37,20 @@ class FilterShell extends StatelessWidget {
           Text(
             title,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w700,
               color: Color(0xFF243247),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             subtitle,
-            style: const TextStyle(fontSize: 13.5, color: Color(0xFF7B8794)),
+            style: const TextStyle(fontSize: 12.5, color: Color(0xFF7B8794)),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           fields,
           if (actions != null) ...<Widget>[
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
             actions!,
           ],
         ],

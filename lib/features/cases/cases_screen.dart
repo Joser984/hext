@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+// import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hext/core/catalog/pad_labels.dart';
+import 'package:hext/core/repositories/caso_paciente_repo.dart';
+import 'package:hext/core/models/caso_paciente.dart';
 import 'package:hext/features/pad/summary/pad_summary_domain_adapter.dart';
 import 'package:hext/features/pad/summary/pad_summary_compact_mapper.dart';
+// import 'package:hext/features/pad/utils/diagnosis_text_formatter.dart';
 import 'package:hext/shared/widgets/app_chip.dart';
 import 'package:hext/shared/widgets/filter_shell.dart';
 import 'package:hext/shared/widgets/light_dropdown.dart';
 import 'package:hext/shared/widgets/light_input.dart';
 import 'package:hext/shared/widgets/module_header.dart';
+import 'package:hext/features/pad/egreso/egreso_pad_modal.dart';
 
 class CensoScreen extends StatefulWidget {
   const CensoScreen({super.key, this.initialSearch});
@@ -19,18 +24,59 @@ class CensoScreen extends StatefulWidget {
 }
 
 class _CensoScreenState extends State<CensoScreen> {
-  final TextEditingController _searchController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    final String seededSearch = widget.initialSearch?.trim() ?? '';
-    if (seededSearch.isNotEmpty) {
-      _searchController.text = seededSearch;
+    Widget _buildDesktopRow(CensoItem item) {
+      return Container(
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Color(0xFFE7ECF1))),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _TableDataCell(
+              flex: _TableFlex.paciente,
+              child: _PatientCell(item: item),
+            ),
+            _TableDataCell(
+              flex: _TableFlex.diagnostico,
+              child: _SimpleCellText(item.diagnostico),
+            ),
+            _TableDataCell(
+              flex: _TableFlex.especialidad,
+              child: _SimpleCellText(item.especialidad),
+            ),
+            _TableDataCell(
+              flex: _TableFlex.fechas,
+              child: _DatesCell(item: item),
+            ),
+            _TableDataCell(
+              flex: _TableFlex.unidad,
+              child: _SimpleCellText(item.unidadFuncionalOrigen),
+            ),
+            _TableDataCell(
+              flex: _TableFlex.barrio,
+              child: _SimpleCellText(item.barrio),
+            ),
+            _TableDataCell(
+              flex: _TableFlex.observaciones,
+              child: _SimpleCellText(item.observaciones),
+            ),
+            _TableDataCell(
+              flex: _TableFlex.acciones,
+              isLast: true,
+              child: _RowActions(
+                canDischarge: _canQuickDischarge(item),
+                onEdit: () => _openEditCase(item),
+                onDischarge: () => _handleQuickDischarge(item),
+              ),
+            ),
+          ],
+        ),
+      );
     }
-  }
-
   static const String _allFilter = PadUiLabels.filterAll;
+
+  // final CensoPacienteRepo _repo = CensoPacienteRepo();
 
   String _situacionFilter = _allFilter;
   String _estadoPadFilter = _allFilter;
@@ -38,7 +84,7 @@ class _CensoScreenState extends State<CensoScreen> {
 
   static final List<String> _situacionOptions = <String>[
     _allFilter,
-    ...PadCareSituationLabels.all,
+    PadCareSituationLabels.hospitalExtension,
   ];
 
   static final List<String> _estadoPadOptions = <String>[
@@ -46,139 +92,94 @@ class _CensoScreenState extends State<CensoScreen> {
     ...PadProcessStatusLabels.all,
   ];
 
-  static const List<String> _unidadOptions =
+  static const List<String> _unidadOptionsFallback =
       PadUiLabels.casesFunctionalUnitOptions;
 
-  final List<CensoItem> _items = <CensoItem>[
-    CensoItem(
-      identificacion: '1045789632',
-      nombreApellido: 'María Pérez Gómez',
-      edad: 76,
-      sexo: 'F',
-      aseguradora: 'Nueva EPS',
-      situacionAsistencial: PadCareSituationLabels.activeInPad,
-      estadoPad: PadProcessStatusLabels.admissionApproved,
-      fechaIngreso: DateTime(2026, 3, 20),
-      fechaEgreso: null,
-      especialidad: 'Medicina interna',
-      unidadFuncionalOrigen: 'Medicina interna',
-      barrio: 'Boston',
-      diagnostico: 'Neumonía',
-      observaciones: 'Paciente en seguimiento clínico y control diario.',
-      motivoPrincipal: 'Finalizar tratamiento instaurado',
-      motivosActivos: <String>[
-        'Finalizar tratamiento instaurado',
-        'Definir conducta medica',
-      ],
-      detalleClinicoResumido:
-          'Paciente con mejoria parcial, requiere completar esquema terapeutico y seguimiento respiratorio.',
-    ),
-    CensoItem(
-      identificacion: '2233445566',
-      nombreApellido: 'José Martínez Ruiz',
-      edad: 81,
-      sexo: 'M',
-      aseguradora: 'Sanitas',
-      situacionAsistencial: PadCareSituationLabels.discharge,
-      estadoPad: PadProcessStatusLabels.closed,
-      fechaIngreso: DateTime(2026, 3, 10),
-      fechaEgreso: DateTime(2026, 3, 22),
-      especialidad: 'Ortopedia y traumatología',
-      unidadFuncionalOrigen: 'Cirugía general',
-      barrio: 'La Campiña',
-      diagnostico: 'Fractura de cadera',
-      observaciones: 'Egreso con educación al cuidador y cierre operativo.',
-      motivoPrincipal: 'Curaciones y/o cuidado de heridas',
-      motivosActivos: <String>['Curaciones y/o cuidado de heridas'],
-      detalleClinicoResumido:
-          'Lesion en fase final de cicatrizacion, egreso con plan de autocuidado.',
-      resolucionPad: 'Alta exitosa',
-    ),
-    CensoItem(
-      identificacion: '9988776655',
-      nombreApellido: 'Ana Lucía Torres',
-      edad: 69,
-      sexo: 'F',
-      aseguradora: 'Sura',
-      situacionAsistencial: PadCareSituationLabels.readmission,
-      estadoPad: PadProcessStatusLabels.underAssessment,
-      fechaIngreso: DateTime(2026, 3, 28),
-      fechaEgreso: null,
-      especialidad: 'Cardiología',
-      unidadFuncionalOrigen: 'Urgencias',
-      barrio: 'Tacarigua',
-      diagnostico: 'Insuficiencia cardíaca',
-      observaciones: 'Pendiente definición médica y conducta definitiva.',
-      motivosActivos: <String>[
-        'Definir conducta medica',
-        'Definir pertinencia ingreso PAD',
-      ],
-    ),
-    CensoItem(
-      identificacion: '5566778899',
-      nombreApellido: 'Carlos Moreno',
-      edad: 72,
-      sexo: 'M',
-      aseguradora: 'Coosalud',
-      situacionAsistencial: PadCareSituationLabels.discharge,
-      estadoPad: PadProcessStatusLabels.closed,
-      fechaIngreso: null,
-      fechaEgreso: null,
-      especialidad: 'Endocrinología',
-      unidadFuncionalOrigen: 'Hospitalización',
-      barrio: 'Pozón',
-      diagnostico: 'Diabetes mellitus',
-      observaciones: 'Caso cerrado tras valoración y cierre administrativo.',
-    ),
-    CensoItem(
-      identificacion: '3216549870',
-      nombreApellido: 'Rosa Elena Vargas',
-      edad: 83,
-      sexo: 'F',
-      aseguradora: 'Mutual Ser',
-      situacionAsistencial: PadCareSituationLabels.hospitalExtension,
-      estadoPad: PadProcessStatusLabels.underAssessment,
-      fechaIngreso: null,
-      fechaEgreso: null,
-      especialidad: 'Medicina interna',
-      unidadFuncionalOrigen: 'Medicina interna',
-      barrio: 'Centro',
-      diagnostico: 'Hipertensión arterial',
-      observaciones: 'En valoración interdisciplinaria.',
-    ),
-    CensoItem(
-      identificacion: '7894561230',
-      nombreApellido: 'Luis Alberto Herrera',
-      edad: 67,
-      sexo: 'M',
-      aseguradora: 'Nueva EPS',
-      situacionAsistencial: PadCareSituationLabels.activeInPad,
-      estadoPad: PadProcessStatusLabels.admissionApproved,
-      fechaIngreso: DateTime(2026, 3, 26),
-      fechaEgreso: null,
-      especialidad: 'Neumología',
-      unidadFuncionalOrigen: 'Hospitalización',
-      barrio: 'San Fernando',
-      diagnostico: 'EPOC',
-      observaciones: 'Seguimiento operativo activo.',
-      motivoPrincipal: 'Finalizar tratamiento instaurado',
-      motivosActivos: <String>["Finalizar tratamiento instaurado"],
-    ),
-  ];
+  static const double _rowActionButtonWidth = 118;
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+  final TextEditingController _searchController = TextEditingController();
+
+  String? _tryReadString(dynamic Function() reader) {
+    try {
+      final dynamic value = reader();
+      if (value == null) return null;
+      final String text = value.toString().trim();
+      return text.isEmpty ? null : text;
+    } catch (_) {
+      return null;
+    }
   }
 
-  List<CensoItem> get _filteredItems {
+  DateTime? _tryReadDate(dynamic Function() reader) {
+    try {
+      final dynamic value = reader();
+      if (value == null) return null;
+      if (value is DateTime) return value;
+      if (value is String && value.trim().isNotEmpty) {
+        return DateTime.tryParse(value.trim());
+      }
+      final dynamic maybeTimestamp = value;
+      if (maybeTimestamp != null && maybeTimestamp.toDate is Function) {
+        return maybeTimestamp.toDate() as DateTime?;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  CensoItem _mapPacienteToItem(CensoPaciente p) {
+    final String situacion = (p.situacionAsistencialLabel.trim().isNotEmpty)
+        ? p.situacionAsistencialLabel.trim()
+        : p.situacionAsistencialKey;
+
+    final String estadoPad = ((p.resultadoPadLabel?.trim().isNotEmpty ?? false))
+        ? p.resultadoPadLabel!.trim()
+        : (p.resultadoPadKey ?? '');
+
+    return CensoItem(
+      candidatoId: p.id,
+      identificacion: p.identificacion,
+      nombreApellido: p.nombreCompleto,
+      edad: p.edad ?? 0,
+      sexo: p.sexoLabel ?? p.sexoKey ?? '',
+      aseguradora: p.aseguradoraLabel ?? p.aseguradoraKey ?? '',
+      situacionAsistencial: situacion,
+      estadoPad: estadoPad,
+      fechaIngreso: p.fechaIngreso,
+      fechaEgreso: p.fechaEgreso,
+      especialidad: p.especialidadLabel ?? p.especialidadKey ?? '',
+      unidadFuncionalOrigen:
+          p.unidadFuncionalOrigenLabel ?? p.unidadFuncionalOrigenKey ?? '',
+      barrio: p.barrio ?? '',
+      diagnostico: p.diagnosticos ?? '',
+      observaciones: p.observaciones ?? '',
+      motivoPrincipal: null,
+      motivoPrincipalLabel: null,
+      motivosActivos: null,
+      motivos: null,
+      detalleClinicoResumido: null,
+      resumenClinico: null,
+      detalleClinico: null,
+      resolucionPad: _tryReadString(() => (p as dynamic).resolucionPad),
+      estadoCaso: _tryReadString(() => (p as dynamic).estadoCaso),
+      tipoEgreso: _tryReadString(() => (p as dynamic).tipoEgreso),
+      observacionEgreso:
+          _tryReadString(() => (p as dynamic).observacionEgreso) ??
+          _tryReadString(() => (p as dynamic).observacionCierre),
+      fechaEgresoTs: _tryReadDate(() => (p as dynamic).fechaEgresoTs),
+      actualizadoPor: _tryReadString(() => (p as dynamic).actualizadoPor),
+      actualizadoEn: _tryReadDate(() => (p as dynamic).actualizadoEn),
+      destinoTraslado: _tryReadString(() => (p as dynamic).destinoTraslado),
+    );
+  }
+
+  List<CensoItem> _filterItems(List<CensoItem> source) {
     final String query = _searchController.text.trim().toLowerCase();
 
-    return _items.where((CensoItem item) {
-      final String visibleSituacion = _situacionLabel(
-        item.situacionAsistencial,
-      );
+    return source.where((CensoItem item) {
+      final String visibleSituacion = _situacionLabel(item.situacionAsistencial);
+
       final bool matchesSearch =
           query.isEmpty ||
           item.identificacion.toLowerCase().contains(query) ||
@@ -191,17 +192,21 @@ class _CensoScreenState extends State<CensoScreen> {
           item.unidadFuncionalOrigen.toLowerCase().contains(query) ||
           item.barrio.toLowerCase().contains(query) ||
           item.diagnostico.toLowerCase().contains(query) ||
-          item.observaciones.toLowerCase().contains(query);
+          item.observaciones.toLowerCase().contains(query) ||
+          ((item.tipoEgreso?.isNotEmpty ?? false) &&
+              item.tipoEgreso!.toLowerCase().contains(query)) ||
+          ((item.observacionEgreso?.isNotEmpty ?? false) &&
+              item.observacionEgreso!.toLowerCase().contains(query)) ||
+          ((item.destinoTraslado?.isNotEmpty ?? false) &&
+              item.destinoTraslado!.toLowerCase().contains(query));
 
-      final bool matchesSituacion =
-          _situacionFilter == _allFilter ||
+      final bool matchesSituacion = _situacionFilter == _allFilter ||
           _matchesSituacion(item.situacionAsistencial, _situacionFilter);
 
       final bool matchesEstadoPad =
           _estadoPadFilter == _allFilter || item.estadoPad == _estadoPadFilter;
 
-      final bool matchesUnidad =
-          _unidadFuncionalFilter == _allFilter ||
+      final bool matchesUnidad = _unidadFuncionalFilter == _allFilter ||
           item.unidadFuncionalOrigen == _unidadFuncionalFilter;
 
       return matchesSearch &&
@@ -222,30 +227,12 @@ class _CensoScreenState extends State<CensoScreen> {
 
   void _openEditCase(CensoItem item) {
     final String resolvedId =
-        item.candidatoId != null && item.candidatoId!.trim().isNotEmpty
-        ? item.candidatoId!
-        : item.identificacion;
+        (item.candidatoId?.trim().isNotEmpty ?? false)
+            ? item.candidatoId!.trim()
+            : item.identificacion;
 
-    final Map<String, dynamic> initialData = <String, dynamic>{
-      'nombreCompleto': item.nombreApellido,
-      'identificacion': item.identificacion,
-      'edad': item.edad,
-      'sexo': item.sexo == 'F'
-          ? 'Femenino'
-          : item.sexo == 'M'
-          ? 'Masculino'
-          : item.sexo,
-      'aseguradora': item.aseguradora,
-      'diagnostico': item.diagnostico,
-      'unidadFuncionalOrigen': item.unidadFuncionalOrigen,
-      'observaciones': item.observaciones,
-      if (item.motivoPrincipal != null)
-        'motivoIngresoPrincipal': item.motivoPrincipal,
-      if (item.motivosActivos != null)
-        'motivosIngresoActivos': item.motivosActivos,
-    };
-
-    context.push('/pad/editar/$resolvedId', extra: initialData);
+    debugPrint('edit: navegando a edición solo con id => $resolvedId');
+    context.push('/pad/editar/$resolvedId');
   }
 
   bool get _hasActiveFilters {
@@ -255,13 +242,71 @@ class _CensoScreenState extends State<CensoScreen> {
         _unidadFuncionalFilter != _allFilter;
   }
 
+  bool _canQuickDischarge(CensoItem item) {
+    if (item.fechaEgreso != null) return false;
+
+    final String situacion = item.situacionAsistencial.trim().toLowerCase();
+    final String estado = item.estadoPad.trim().toLowerCase();
+
+    final bool alreadyClosed = estado == 'egresado' ||
+        estado == 'cerrado' ||
+        estado == 'alta' ||
+        situacion == 'egresado' ||
+        situacion == 'cerrado' ||
+        situacion == 'alta';
+
+    if (alreadyClosed) return false;
+
+    final bool activeLike =
+        _matchesSituacion(
+          item.situacionAsistencial,
+          PadCareSituationLabels.hospitalExtension,
+        ) ||
+        _matchesSituacion(
+          item.situacionAsistencial,
+          PadCareSituationLabels.readmission,
+        ) ||
+        situacion == 'activo en pad' ||
+        situacion == 'activos en pad' ||
+        situacion == 'seguimiento' ||
+        situacion == 'extensión hospitalaria' ||
+        situacion == 'extension hospitalaria' ||
+        situacion == 'en valoración' ||
+        situacion == 'en valoracion';
+
+    return activeLike;
+  }
+
+  Future<void> _handleQuickDischarge(CensoItem item) async {
+    final bool? result = await showEgresoPadDialog(
+      context: context,
+      pacienteId: (item.candidatoId?.trim().isNotEmpty ?? false)
+          ? item.candidatoId!.trim()
+          : item.identificacion,
+      pacienteNombre: item.nombreApellido,
+      diagnostico: item.diagnostico,
+      estadoActual: item.situacionAsistencial,
+      initialTipoEgreso: item.tipoEgreso,
+      initialCausaReingreso: null,
+      initialCausaReingresoOtro: null,
+      initialFechaEgreso: item.fechaEgreso,
+    );
+
+    if (!mounted || result != true) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Paciente egresado correctamente.')),
+    );
+  }
+
   bool _matchesSituacion(String itemSituacion, String selectedSituacion) {
     final String item = _normalizeSituacion(itemSituacion);
     final String selected = _normalizeSituacion(selectedSituacion);
 
-    if (selected == _normalizeSituacion(PadCareSituationLabels.activeInPad)) {
-      return item == _normalizeSituacion(PadCareSituationLabels.activeInPad) ||
-          item == _normalizeSituacion(PadCareSituationLabels.hospitalExtension);
+    if (selected ==
+        _normalizeSituacion(PadCareSituationLabels.hospitalExtension)) {
+      return item ==
+          _normalizeSituacion(PadCareSituationLabels.hospitalExtension);
     }
 
     return item == selected;
@@ -269,8 +314,9 @@ class _CensoScreenState extends State<CensoScreen> {
 
   String _normalizeSituacion(String situacion) {
     final String normalized = situacion.trim().toLowerCase();
+
     if (normalized == 'activos en pad') {
-      return _normalizeSituacion(PadCareSituationLabels.activeInPad);
+      return _normalizeSituacion(PadCareSituationLabels.hospitalExtension);
     }
     if (normalized == 'reingreso de pad') {
       return _normalizeSituacion(PadCareSituationLabels.readmission);
@@ -278,6 +324,7 @@ class _CensoScreenState extends State<CensoScreen> {
     if (normalized == 'en valoración' || normalized == 'en valoracion') {
       return _normalizeSituacion(PadCareSituationLabels.hospitalExtension);
     }
+
     return normalized;
   }
 
@@ -285,64 +332,94 @@ class _CensoScreenState extends State<CensoScreen> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
 
-    return Container(
-      color: const Color(0xFFF5F7FA),
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final bool useTable = constraints.maxWidth >= 1180;
-          final double horizontalPadding = constraints.maxWidth >= 900
-              ? 16
-              : 12;
+    return StreamBuilder<List<CensoPaciente>>(
+      stream: CensoPacienteRepo().watchCenso(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
 
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              20,
-              horizontalPadding,
-              28,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const ModuleHeader(
-                  title: PadUiLabels.casesPageTitle,
-                  subtitle: PadUiLabels.casesPageSubtitle,
+        final List<CensoPaciente> raw = snapshot.data ?? <CensoPaciente>[];
+        final List<CensoItem> items = raw.map(_mapPacienteToItem).toList();
+        final List<CensoItem> filtered = _filterItems(items);
+
+        List<String> unidadOptions = items
+            .map((e) => e.especialidad.trim())
+            .where((e) => e.isNotEmpty)
+            .toSet()
+            .toList();
+
+        unidadOptions.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        unidadOptions.insert(0, PadUiLabels.filterAll);
+
+        if (unidadOptions.length == 1) {
+          unidadOptions = List<String>.from(_unidadOptionsFallback);
+        }
+
+        return Container(
+          color: const Color(0xFFF5F7FA),
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final bool useTable = constraints.maxWidth >= 1180;
+              final double horizontalPadding =
+                  constraints.maxWidth >= 900 ? 16 : 12;
+
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  20,
+                  horizontalPadding,
+                  28,
                 ),
-                const SizedBox(height: 12),
-                _buildFiltersShell(),
-                const SizedBox(height: 12),
-                _buildSectionHeader(theme),
-                const SizedBox(height: 8),
-                useTable ? _buildDesktopTable() : _buildMobileCards(),
-              ],
-            ),
-          );
-        },
-      ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const ModuleHeader(
+                      title: PadUiLabels.casesPageTitle,
+                      subtitle: PadUiLabels.casesPageSubtitle,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildFiltersShell(unidadOptions),
+                    const SizedBox(height: 12),
+                    _buildSectionHeader(theme, filtered.length),
+                    const SizedBox(height: 8),
+                    useTable ? _buildDesktopTable(filtered) : _buildMobileCards(),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildFiltersShell() {
+  Widget _buildFiltersShell([List<String>? unidadOptions]) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final double maxWidth = constraints.maxWidth;
         final double searchWidth = maxWidth >= 1280
             ? 320
             : maxWidth >= 900
-            ? 280
-            : maxWidth;
+                ? 280
+                : maxWidth;
         final double fieldWidth = maxWidth >= 1280
             ? 185
             : maxWidth >= 900
-            ? (maxWidth - 12) / 2
-            : maxWidth;
+                ? (maxWidth - 12) / 2
+                : maxWidth;
+
+        final List<String> unidadOpts = unidadOptions ?? _unidadOptionsFallback;
 
         return FilterShell(
           title: PadUiLabels.casesFiltersHeader,
           subtitle: PadUiLabels.casesFiltersSubtitle,
           fields: Wrap(
             spacing: 12,
-            runSpacing: 12,
+            runSpacing: 8,
             children: <Widget>[
               SizedBox(
                 width: searchWidth,
@@ -396,7 +473,7 @@ class _CensoScreenState extends State<CensoScreen> {
                 child: LightDropdown<String>(
                   label: PadUiLabels.functionalUnitLabel,
                   value: _unidadFuncionalFilter,
-                  items: _unidadOptions
+                  items: unidadOpts
                       .map(
                         (String item) => DropdownMenuItem<String>(
                           value: item,
@@ -412,55 +489,34 @@ class _CensoScreenState extends State<CensoScreen> {
               ),
             ],
           ),
-          actions: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: <Widget>[
-              SizedBox(
-                height: 40,
-                child: OutlinedButton.icon(
-                  onPressed: _clearFilters,
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFFD7DCE3)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  icon: const Icon(
-                    Icons.refresh_rounded,
-                    size: 18,
-                    color: Color(0xFF5B6474),
-                  ),
-                  label: const Text(
-                    PadUiLabels.clearFilters,
-                    style: TextStyle(color: Color(0xFF5B6474)),
-                  ),
+          actions: SizedBox(
+            height: 38,
+            child: OutlinedButton.icon(
+              onPressed: _clearFilters,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFD7DCE3)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
               ),
-              SizedBox(
-                height: 40,
-                child: FilledButton.icon(
-                  onPressed: () {},
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF17726D),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text(PadUiLabels.newCase),
-                ),
+              icon: const Icon(
+                Icons.refresh_rounded,
+                size: 18,
+                color: Color(0xFF5B6474),
               ),
-            ],
+              label: const Text(
+                PadUiLabels.clearFilters,
+                style: TextStyle(color: Color(0xFF5B6474)),
+              ),
+            ),
           ),
         );
       },
     );
   }
 
-  Widget _buildSectionHeader(ThemeData theme) {
+  Widget _buildSectionHeader(ThemeData theme, int count) {
     return Row(
       children: <Widget>[
         Text(
@@ -478,7 +534,7 @@ class _CensoScreenState extends State<CensoScreen> {
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
-            '${_filteredItems.length} ${PadUiLabels.recordsSuffix}',
+            '$count ${PadUiLabels.recordsSuffix}',
             style: const TextStyle(
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
@@ -490,9 +546,7 @@ class _CensoScreenState extends State<CensoScreen> {
     );
   }
 
-  Widget _buildDesktopTable() {
-    final List<CensoItem> rows = _filteredItems;
-
+  Widget _buildDesktopTable(List<CensoItem> rows) {
     return Container(
       decoration: _cardDecoration(),
       clipBehavior: Clip.antiAlias,
@@ -554,150 +608,23 @@ class _CensoScreenState extends State<CensoScreen> {
     );
   }
 
-  Widget _buildDesktopRow(CensoItem item) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFE7ECF1))),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _TableDataCell(
-            flex: _TableFlex.paciente,
-            child: _PatientCell(item: item),
-          ),
-          _TableDataCell(
-            flex: _TableFlex.diagnostico,
-            child: _SimpleCellText(item.diagnostico, maxLines: 2),
-          ),
-          _TableDataCell(
-            flex: _TableFlex.especialidad,
-            child: _SimpleCellText(item.especialidad, maxLines: 2),
-          ),
-          _TableDataCell(
-            flex: _TableFlex.fechas,
-            child: _DatesCell(item: item),
-          ),
-          _TableDataCell(
-            flex: _TableFlex.unidad,
-            child: _SimpleCellText(item.unidadFuncionalOrigen, maxLines: 2),
-          ),
-          _TableDataCell(
-            flex: _TableFlex.barrio,
-            child: _SimpleCellText(item.barrio, maxLines: 1),
-          ),
-          _TableDataCell(
-            flex: _TableFlex.observaciones,
-            child: _SimpleCellText(item.observaciones, maxLines: 2),
-          ),
-          _TableDataCell(
-            flex: _TableFlex.acciones,
-            isLast: true,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: () => _openEditCase(item),
-                icon: const Icon(Icons.edit_outlined, size: 16),
-                label: const Text('Editar'),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // ...existing code...
+
+
 
   Widget _buildMobileCards() {
-    final List<CensoItem> rows = _filteredItems;
-
-    if (rows.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: _cardDecoration(),
-        child: _buildEmptyStateContent(isFiltered: _hasActiveFilters),
-      );
-    }
-
-    return Column(
-      children: rows
-          .map(
-            (CensoItem item) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: _cardDecoration(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _PatientCell(item: item),
-                    const SizedBox(height: 12),
-                    _InfoLine(
-                      label: PadUiLabels.careSituationLabel,
-                      value: _situacionLabel(item.situacionAsistencial),
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.processStatusLabel,
-                      value: item.estadoPad,
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.admissionDateLabel,
-                      value: _formatDate(item.fechaIngreso),
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.dischargeDateLabel,
-                      value: _formatDate(item.fechaEgreso),
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.stayDaysLabel,
-                      value: item.diasEstancia?.toString() ?? '--',
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.specialtyLabel,
-                      value: item.especialidad,
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.functionalUnitLabel,
-                      value: item.unidadFuncionalOrigen,
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.neighborhoodLabel,
-                      value: item.barrio,
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.diagnosisLabel,
-                      value: item.diagnostico,
-                    ),
-                    _InfoLine(
-                      label: PadUiLabels.observationsLabel,
-                      value: item.observaciones,
-                    ),
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: OutlinedButton.icon(
-                        onPressed: () => _openEditCase(item),
-                        icon: const Icon(Icons.edit_outlined, size: 16),
-                        label: const Text('Editar'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          )
-          .toList(),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Text(
+          'Vista móvil en desarrollo',
+          style: TextStyle(color: Colors.grey[600], fontSize: 18),
+        ),
+      ),
     );
   }
 
-  String _formatDate(DateTime? date) {
-    if (date == null) return '--';
-    final String day = date.day.toString().padLeft(2, '0');
-    final String month = date.month.toString().padLeft(2, '0');
-    return '$day/$month/${date.year}';
-  }
+
 
   String _situacionLabel(String situacion) {
     return _CaseCareSituationUi.labelFor(situacion);
@@ -780,6 +707,13 @@ class CensoItem {
   final String? resumenClinico;
   final String? detalleClinico;
   final String? resolucionPad;
+  final String? estadoCaso;
+  final String? tipoEgreso;
+  final String? observacionEgreso;
+  final DateTime? fechaEgresoTs;
+  final String? actualizadoPor;
+  final DateTime? actualizadoEn;
+  final String? destinoTraslado;
 
   CensoItem({
     this.candidatoId,
@@ -805,7 +739,82 @@ class CensoItem {
     this.resumenClinico,
     this.detalleClinico,
     this.resolucionPad,
+    this.estadoCaso,
+    this.tipoEgreso,
+    this.observacionEgreso,
+    this.fechaEgresoTs,
+    this.actualizadoPor,
+    this.actualizadoEn,
+    this.destinoTraslado,
   });
+
+  CensoItem copyWith({
+    String? candidatoId,
+    String? identificacion,
+    String? nombreApellido,
+    int? edad,
+    String? sexo,
+    String? aseguradora,
+    String? situacionAsistencial,
+    String? estadoPad,
+    DateTime? fechaIngreso,
+    DateTime? fechaEgreso,
+    String? especialidad,
+    String? unidadFuncionalOrigen,
+    String? barrio,
+    String? diagnostico,
+    String? observaciones,
+    String? motivoPrincipal,
+    String? motivoPrincipalLabel,
+    List<String>? motivosActivos,
+    List<String>? motivos,
+    String? detalleClinicoResumido,
+    String? resumenClinico,
+    String? detalleClinico,
+    String? resolucionPad,
+    String? estadoCaso,
+    String? tipoEgreso,
+    String? observacionEgreso,
+    DateTime? fechaEgresoTs,
+    String? actualizadoPor,
+    DateTime? actualizadoEn,
+    String? destinoTraslado,
+  }) {
+    return CensoItem(
+      candidatoId: candidatoId ?? this.candidatoId,
+      identificacion: identificacion ?? this.identificacion,
+      nombreApellido: nombreApellido ?? this.nombreApellido,
+      edad: edad ?? this.edad,
+      sexo: sexo ?? this.sexo,
+      aseguradora: aseguradora ?? this.aseguradora,
+      situacionAsistencial: situacionAsistencial ?? this.situacionAsistencial,
+      estadoPad: estadoPad ?? this.estadoPad,
+      fechaIngreso: fechaIngreso ?? this.fechaIngreso,
+      fechaEgreso: fechaEgreso ?? this.fechaEgreso,
+      especialidad: especialidad ?? this.especialidad,
+      unidadFuncionalOrigen:
+          unidadFuncionalOrigen ?? this.unidadFuncionalOrigen,
+      barrio: barrio ?? this.barrio,
+      diagnostico: diagnostico ?? this.diagnostico,
+      observaciones: observaciones ?? this.observaciones,
+      motivoPrincipal: motivoPrincipal ?? this.motivoPrincipal,
+      motivoPrincipalLabel: motivoPrincipalLabel ?? this.motivoPrincipalLabel,
+      motivosActivos: motivosActivos ?? this.motivosActivos,
+      motivos: motivos ?? this.motivos,
+      detalleClinicoResumido:
+          detalleClinicoResumido ?? this.detalleClinicoResumido,
+      resumenClinico: resumenClinico ?? this.resumenClinico,
+      detalleClinico: detalleClinico ?? this.detalleClinico,
+      resolucionPad: resolucionPad ?? this.resolucionPad,
+      estadoCaso: estadoCaso ?? this.estadoCaso,
+      tipoEgreso: tipoEgreso ?? this.tipoEgreso,
+      observacionEgreso: observacionEgreso ?? this.observacionEgreso,
+      fechaEgresoTs: fechaEgresoTs ?? this.fechaEgresoTs,
+      actualizadoPor: actualizadoPor ?? this.actualizadoPor,
+      actualizadoEn: actualizadoEn ?? this.actualizadoEn,
+      destinoTraslado: destinoTraslado ?? this.destinoTraslado,
+    );
+  }
 
   int? get diasEstancia {
     if (fechaIngreso == null) return null;
@@ -883,6 +892,24 @@ class _PatientCell extends StatelessWidget {
     return _CaseCareSituationUi.labelFor(situacion);
   }
 
+  String _visibleStateLabel(CensoItem item) {
+    if (item.fechaEgreso != null) return 'Egresado';
+
+    final String estado = item.estadoPad.trim().toLowerCase();
+    final String situacion = item.situacionAsistencial.trim().toLowerCase();
+
+    if (estado == 'egresado' ||
+        estado == 'cerrado' ||
+        estado == 'alta' ||
+        situacion == 'egresado' ||
+        situacion == 'cerrado' ||
+        situacion == 'alta') {
+      return 'Egresado';
+    }
+
+    return _situacionLabel(item.situacionAsistencial);
+  }
+
   @override
   Widget build(BuildContext context) {
     final PadCaseRecord record = PadCaseRecord(
@@ -896,11 +923,25 @@ class _PatientCell extends StatelessWidget {
       situacionAsistencial: item.situacionAsistencial,
       estadoPad: item.estadoPad,
       resolucionPad: item.resolucionPad,
+      barrio: item.barrio,
     );
 
     final summary = mapPadSummary(
       PadSummaryDomainAdapter.toPadCaseData(record),
     );
+
+    final String visibleLabel = _visibleStateLabel(item);
+
+    String? tipoEgresoDetalle;
+    String? destinoTrasladoDetalle;
+
+    if ((item.tipoEgreso?.toLowerCase() ?? '') == 'traslado' &&
+        (item.destinoTraslado?.isNotEmpty ?? false)) {
+      tipoEgresoDetalle = 'Traslado';
+      destinoTrasladoDetalle = item.destinoTraslado;
+    } else if ((item.tipoEgreso?.isNotEmpty ?? false)) {
+      tipoEgresoDetalle = item.tipoEgreso;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -920,7 +961,10 @@ class _PatientCell extends StatelessWidget {
           '${item.identificacion} · ${item.edad} años · ${item.sexo} · ${item.aseguradora}',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 12.8, color: Color(0xFF748096)),
+          style: const TextStyle(
+            fontSize: 12.8,
+            color: Color(0xFF748096),
+          ),
         ),
         const SizedBox(height: 6),
         Text(
@@ -935,14 +979,85 @@ class _PatientCell extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         AppChip(
-          label: _situacionLabel(item.situacionAsistencial),
-          tone: _CaseCareSituationUi.toneFor(item.situacionAsistencial),
+          label: visibleLabel,
+          tone: _CaseCareSituationUi.toneFor(visibleLabel),
           leadingDot: true,
         ),
+        if (tipoEgresoDetalle != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Tipo de egreso: $tipoEgresoDetalle',
+                  style: const TextStyle(
+                    fontSize: 13.2,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF243247),
+                  ),
+                ),
+                if (destinoTrasladoDetalle != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      'Destino del traslado: $destinoTrasladoDetalle',
+                      style: const TextStyle(
+                        fontSize: 13.2,
+                        color: Color(0xFF243247),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
       ],
     );
   }
 }
+
+class _RowActions extends StatelessWidget {
+  const _RowActions({
+    required this.canDischarge,
+    required this.onEdit,
+    required this.onDischarge,
+  });
+
+  final bool canDischarge;
+  final VoidCallback onEdit;
+  final VoidCallback onDischarge;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: _CensoScreenState._rowActionButtonWidth * 2,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: <Widget>[
+          SizedBox(
+            width: _CensoScreenState._rowActionButtonWidth,
+            height: 34,
+            child: OutlinedButton(
+              onPressed: onEdit,
+              child: const Text('Editar'),
+            ),
+          ),
+          SizedBox(
+            width: _CensoScreenState._rowActionButtonWidth,
+            height: 34,
+            child: FilledButton(
+              onPressed: canDischarge ? onDischarge : null,
+              child: const Text('Egresar'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ...existing code...
 
 class _DatesCell extends StatelessWidget {
   final CensoItem item;
@@ -995,10 +1110,11 @@ class _DatesCell extends StatelessWidget {
 }
 
 class _SimpleCellText extends StatelessWidget {
+
   final String text;
   final int maxLines;
 
-  const _SimpleCellText(this.text, {this.maxLines = 3});
+  const _SimpleCellText(this.text, {this.maxLines = 2});
 
   @override
   Widget build(BuildContext context) {
@@ -1015,44 +1131,12 @@ class _SimpleCellText extends StatelessWidget {
   }
 }
 
-class _InfoLine extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _InfoLine({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(
-            fontSize: 13.5,
-            height: 1.4,
-            color: Color(0xFF5D6778),
-          ),
-          children: <TextSpan>[
-            TextSpan(
-              text: '$label: ',
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            TextSpan(text: value),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _CaseCareSituationUi {
   const _CaseCareSituationUi._();
 
   static String labelFor(String situacion) {
     switch (situacion.trim().toLowerCase()) {
       case 'activos en pad':
-      case 'activo en pad':
-        return PadCareSituationLabels.activeInPad;
       case 'extensión hospitalaria':
         return PadCareSituationLabels.hospitalExtension;
       case 'reingreso de pad':
@@ -1064,8 +1148,9 @@ class _CaseCareSituationUi {
 
   static AppChipTone toneFor(String situacion) {
     final String normalized = labelFor(situacion).trim().toLowerCase();
-    if (normalized == PadCareSituationLabels.activeInPad.toLowerCase() ||
-        normalized == PadCareSituationLabels.hospitalExtension.toLowerCase()) {
+
+    if (normalized ==
+        PadCareSituationLabels.hospitalExtension.toLowerCase()) {
       return AppChipTone.success;
     }
     if (normalized == PadCareSituationLabels.readmission.toLowerCase()) {
@@ -1074,9 +1159,11 @@ class _CaseCareSituationUi {
     if (normalized == PadCareSituationLabels.discharge.toLowerCase()) {
       return AppChipTone.warning;
     }
-    if (normalized == PadCareSituationLabels.noProgramAdmission.toLowerCase()) {
+    if (normalized ==
+        PadCareSituationLabels.noProgramAdmission.toLowerCase()) {
       return AppChipTone.danger;
     }
+
     return AppChipTone.neutral;
   }
 }

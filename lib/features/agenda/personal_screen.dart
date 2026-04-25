@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,77 +11,116 @@ import 'package:hext/shared/widgets/agenda_subnav.dart';
 import 'package:hext/shared/widgets/app_chip.dart';
 import 'package:hext/shared/widgets/module_header.dart';
 
-class PersonalScreen extends StatelessWidget {
+// Convierte un string a 'Title Case' (iniciales en mayúscula)
+String toTitleCase(String text) {
+  if (text.isEmpty) return text;
+  return text
+      .toLowerCase()
+      .split(' ')
+      .map(
+        (word) =>
+            word.isNotEmpty ? word[0].toUpperCase() + word.substring(1) : '',
+      )
+      .join(' ');
+}
+
+class PersonalScreen extends StatefulWidget {
   const PersonalScreen({super.key});
+
+  @override
+  State<PersonalScreen> createState() => _PersonalScreenState();
+}
+
+class _PersonalScreenState extends State<PersonalScreen> {
+  Timer? _clockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final InMemoryPersonalRepo repo = context.watch<InMemoryPersonalRepo>();
-    final InMemoryNovedadesRepo novedadesRepo = context
-        .watch<InMemoryNovedadesRepo>();
+    final InMemoryNovedadesRepo novedadesRepo =
+        context.watch<InMemoryNovedadesRepo>();
     final List<AuxiliarDomiciliario> items = repo.items;
 
     return Container(
       color: const Color(0xFFF5F7FA),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final double horizontalPadding = constraints.maxWidth >= 900
-              ? 16
-              : 12;
+          final double horizontalPadding =
+              constraints.maxWidth >= 900 ? 16 : 12;
+          final double topScrollOffset = constraints.maxWidth >= 900 ? 8 : 6;
 
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              20,
-              horizontalPadding,
-              28,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                ModuleHeader(
-                  title: 'Personal',
-                  subtitle:
-                      'Gestion de auxiliares, novedades laborales y estado operativo.',
-                ),
-                const SizedBox(height: 10),
-                _SubnavWithAction(onAdd: () => _openForm(context)),
-                const SizedBox(height: 12),
-                _HeaderSummary(items: items),
-                const SizedBox(height: 12),
-                if (items.isEmpty)
-                  _EmptyState(onAdd: () => _openForm(context))
-                else
-                  Column(
-                    children: items
-                        .map(
-                          (AuxiliarDomiciliario item) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _AuxiliarCard(
-                              auxiliar: item,
-                              novedadesActivas: novedadesRepo.activeForAuxiliar(
-                                item.id,
-                              ),
-                              alertaVacaciones: novedadesRepo
-                                  .vacacionesVencidas(
-                                    auxiliarId: item.id,
-                                    fechaIngreso: item.fechaIngreso,
-                                  ),
-                              onEdit: () => _openForm(context, auxiliar: item),
-                              onDelete: () => _confirmDelete(context, item),
-                              onToggleActivo: (bool value) {
-                                context
-                                    .read<InMemoryPersonalRepo>()
-                                    .toggleActivo(item.id, value);
-                              },
-                              onGestionarNovedades: () =>
-                                  _openNovedades(context, item),
-                            ),
-                          ),
-                        )
-                        .toList(),
+          return Padding(
+            padding: EdgeInsets.only(top: topScrollOffset),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                14,
+                horizontalPadding,
+                28,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const ModuleHeader(
+                    title: 'Personal',
+                    subtitle:
+                        'Gestión de auxiliares, novedades laborales y estado operativo.',
                   ),
-              ],
+                  const SizedBox(height: 10),
+                  _SubnavWithAction(onAdd: () => _openForm(context)),
+                  const SizedBox(height: 12),
+                  _HeaderSummary(items: items),
+                  const SizedBox(height: 12),
+                  if (items.isEmpty)
+                    _EmptyState(onAdd: () => _openForm(context))
+                  else
+                    Column(
+                      children: items
+                          .map(
+                            (AuxiliarDomiciliario item) => Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _AuxiliarCard(
+                                auxiliar: item,
+                                novedadesActivas:
+                                    novedadesRepo.activeForAuxiliar(item.id),
+                                alertaVacaciones:
+                                    novedadesRepo.vacacionesVencidas(
+                                  auxiliarId: item.id,
+                                  fechaIngreso: item.fechaIngreso,
+                                ),
+                                onEdit: () =>
+                                    _openForm(context, auxiliar: item),
+                                onDelete: () => _confirmDelete(context, item),
+                                onToggleActivo: (bool value) {
+                                  context
+                                      .read<InMemoryPersonalRepo>()
+                                      .toggleActivo(item.id, value);
+                                },
+                                onGestionarNovedades: () =>
+                                    _openNovedades(context, item),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                ],
+              ),
             ),
           );
         },
@@ -166,7 +207,7 @@ class _HeaderSummary extends StatelessWidget {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: <Widget>[
           const Text(
-            'Resumen del modulo',
+            'Resumen del módulo',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
@@ -251,13 +292,20 @@ class _AuxiliarCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextStyle secondaryStyle =
         (Theme.of(context).textTheme.bodySmall ?? const TextStyle()).copyWith(
-          color: const Color(0xFF8A9199),
-        );
+      color: const Color(0xFF8A9199),
+      fontSize: 12.5,
+    );
+
+    final List<Widget> alertWidgets = <Widget>[
+      if (novedadesActivas.isNotEmpty) ..._buildNovedadesPreview(context),
+      if (alertaVacaciones)
+        const _AlertaBadge(text: 'Vacaciones pendientes por programar'),
+    ];
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFDCE3EA)),
         boxShadow: const <BoxShadow>[
           BoxShadow(
@@ -268,155 +316,268 @@ class _AuxiliarCard extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
+        padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final bool narrow = constraints.maxWidth < 760;
+
+            final Widget leftContent = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Expanded(
-                  child: Text(
-                    auxiliar.nombreCompleto,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                Text(
+                  auxiliar.nombreCompleto,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF243247),
                   ),
                 ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+                if (alertWidgets.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 8, runSpacing: 8, children: alertWidgets),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: <Widget>[
-                    Text(
-                      auxiliar.activo ? 'Activo' : 'Inactivo',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: const Color(0xFF5C6370),
-                      ),
+                    AppChip(
+                      label: auxiliar.cargo,
+                      tone: AppChipTone.neutral,
+                      leadingDot: true,
                     ),
-                    Switch.adaptive(
-                      value: auxiliar.activo,
-                      onChanged: onToggleActivo,
+                    AppChip(
+                      label: auxiliar.modalidad,
+                      tone: AppChipTone.neutral,
+                      leadingDot: true,
                     ),
                   ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: <Widget>[
-                AppChip(label: auxiliar.cargo, tone: AppChipTone.info),
-                AppChip(label: auxiliar.modalidad, tone: AppChipTone.neutral),
-                AppChip(
-                  label: auxiliar.activo ? 'Activo' : 'Inactivo',
-                  tone: auxiliar.activo
-                      ? AppChipTone.success
-                      : AppChipTone.warning,
-                ),
-              ],
-            ),
-            if (auxiliar.fechaIngreso != null) ...<Widget>[
-              const SizedBox(height: 6),
-              Row(
-                children: <Widget>[
-                  const Icon(
-                    Icons.calendar_today_outlined,
-                    size: 13,
-                    color: Color(0xFF8A9199),
-                  ),
-                  const SizedBox(width: 4),
+                if (auxiliar.fechaIngreso != null) ...<Widget>[
+                  const SizedBox(height: 10),
                   Text(
                     'Ingreso: ${_formatDate(auxiliar.fechaIngreso!)}',
                     style: secondaryStyle,
                   ),
                 ],
-              ),
-            ],
-            if (novedadesActivas.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: novedadesActivas.length <= 2
-                    ? novedadesActivas
-                          .map((NovedadLaboral n) => _NovedadBadge(novedad: n))
-                          .toList()
-                    : <Widget>[
-                        _NovedadBadge(novedad: novedadesActivas.first),
-                        _NovedadBadge(novedad: novedadesActivas[1]),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF7F8FA),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFFE3E7EC)),
-                          ),
-                          child: Text(
-                            '+${novedadesActivas.length - 2} mas',
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(color: const Color(0xFF5C6370)),
+                const SizedBox(height: 12),
+                Row(
+                  children: <Widget>[
+                    _CardActionLink(
+                      icon: Icons.edit_outlined,
+                      label: 'Editar',
+                      color: const Color(0xFF17726D),
+                      onTap: onEdit,
+                    ),
+                    const SizedBox(width: 14),
+                    _CardActionLink(
+                      icon: Icons.delete_outline_rounded,
+                      label: 'Eliminar',
+                      color: const Color(0xFFB42318),
+                      onTap: onDelete,
+                    ),
+                  ],
+                ),
+              ],
+            );
+
+            final Widget controlColumn = SizedBox(
+              width: narrow ? double.infinity : 108,
+              child: narrow
+                  ? Row(
+                      children: <Widget>[
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Text(
+                              auxiliar.activo ? 'Activo' : 'Inactivo',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                color: const Color(0xFF5C6370),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Switch.adaptive(
+                              value: auxiliar.activo,
+                              onChanged: onToggleActivo,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        Badge(
+                          isLabelVisible: novedadesActivas.isNotEmpty,
+                          label: Text('${novedadesActivas.length}'),
+                          child: InkWell(
+                            onTap: onGestionarNovedades,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF7FAFC),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(0xFFE3EAF0),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.event_note_outlined,
+                                size: 20,
+                                color: Color(0xFF5F6B7A),
+                              ),
+                            ),
                           ),
                         ),
                       ],
-              ),
-            ],
-            if (alertaVacaciones) ...<Widget>[
-              const SizedBox(height: 6),
-              const _AlertaBadge(text: 'Vacaciones pendientes por programar'),
-            ],
-            const SizedBox(height: 2),
-            Row(
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: <Widget>[
+                        Text(
+                          auxiliar.activo ? 'Activo' : 'Inactivo',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                            color: const Color(0xFF5C6370),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Transform.scale(
+                          scale: 0.9,
+                          alignment: Alignment.centerRight,
+                          child: Switch.adaptive(
+                            value: auxiliar.activo,
+                            onChanged: onToggleActivo,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Badge(
+                          isLabelVisible: novedadesActivas.isNotEmpty,
+                          label: Text('${novedadesActivas.length}'),
+                          child: InkWell(
+                            onTap: onGestionarNovedades,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF7FAFC),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(0xFFE3EAF0),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.event_note_outlined,
+                                size: 20,
+                                color: Color(0xFF5F6B7A),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+            );
+
+            if (narrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  leftContent,
+                  const SizedBox(height: 12),
+                  controlColumn,
+                ],
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                TextButton(
-                  onPressed: onEdit,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 0,
-                    ),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text('Editar'),
-                ),
-                TextButton(
-                  onPressed: onDelete,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 0,
-                    ),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text('Eliminar'),
-                ),
-                const Spacer(),
-                Badge(
-                  isLabelVisible: novedadesActivas.isNotEmpty,
-                  label: Text('${novedadesActivas.length}'),
-                  child: IconButton(
-                    icon: const Icon(Icons.event_note_outlined),
-                    tooltip: 'Novedades laborales',
-                    iconSize: 20,
-                    onPressed: onGestionarNovedades,
-                  ),
-                ),
+                Expanded(child: leftContent),
+                const SizedBox(width: 14),
+                controlColumn,
               ],
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
+  }
+
+  List<Widget> _buildNovedadesPreview(BuildContext context) {
+    if (novedadesActivas.length <= 2) {
+      return novedadesActivas
+          .map((NovedadLaboral n) => _NovedadBadge(novedad: n))
+          .toList();
+    }
+
+    return <Widget>[
+      _NovedadBadge(novedad: novedadesActivas.first),
+      _NovedadBadge(novedad: novedadesActivas[1]),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFE3E7EC)),
+        ),
+        child: Text(
+          '+${novedadesActivas.length - 2} más',
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: const Color(0xFF5C6370)),
+        ),
+      ),
+    ];
   }
 
   static String _formatDate(DateTime date) {
     final String d = date.day.toString().padLeft(2, '0');
     final String m = date.month.toString().padLeft(2, '0');
     return '$d/$m/${date.year}';
+  }
+}
+
+class _CardActionLink extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _CardActionLink({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -449,7 +610,7 @@ class _NovedadBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: fg.withValues(alpha: 0.40)),
+        border: Border.all(color: fg.withOpacity(0.40)),
       ),
       child: Text(
         '${novedad.estado.label} · ${novedad.tipo.label}',
@@ -625,7 +786,6 @@ class _AuxiliarFormDialogState extends State<_AuxiliarFormDialog> {
                     }
                   },
                 ),
-
                 const SizedBox(height: 12),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
@@ -657,11 +817,12 @@ class _AuxiliarFormDialogState extends State<_AuxiliarFormDialog> {
     if (!_formKey.currentState!.validate()) return;
 
     final InMemoryPersonalRepo repo = context.read<InMemoryPersonalRepo>();
+    final String nombreFormateado = toTitleCase(_nombreController.text.trim());
 
     if (isEdit) {
       final AuxiliarDomiciliario updated = AuxiliarDomiciliario(
         id: widget.auxiliar!.id,
-        nombreCompleto: _nombreController.text.trim(),
+        nombreCompleto: nombreFormateado,
         cargo: _cargo,
         modalidad: _modalidad,
         fechaIngreso: _fechaIngreso,
@@ -672,7 +833,7 @@ class _AuxiliarFormDialogState extends State<_AuxiliarFormDialog> {
     } else {
       final AuxiliarDomiciliario created = AuxiliarDomiciliario(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
-        nombreCompleto: _nombreController.text.trim(),
+        nombreCompleto: nombreFormateado,
         cargo: _cargo,
         modalidad: _modalidad,
         fechaIngreso: _fechaIngreso,
@@ -802,11 +963,11 @@ class _NovedadesDialog extends StatelessWidget {
                     novedad: nov,
                     onMarcarDisfrutado:
                         (nov.estado == EstadoNovedad.pendiente ||
-                            nov.estado == EstadoNovedad.programado)
-                        ? () => context
-                              .read<InMemoryNovedadesRepo>()
-                              .marcarDisfrutado(nov.id)
-                        : null,
+                                nov.estado == EstadoNovedad.programado)
+                            ? () => context
+                                  .read<InMemoryNovedadesRepo>()
+                                  .marcarDisfrutado(nov.id)
+                            : null,
                     onDelete: () =>
                         context.read<InMemoryNovedadesRepo>().delete(nov.id),
                   );
@@ -853,8 +1014,8 @@ class _NovedadTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextStyle secondary =
         (Theme.of(context).textTheme.bodySmall ?? const TextStyle()).copyWith(
-          color: const Color(0xFF8A9199),
-        );
+      color: const Color(0xFF8A9199),
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -946,7 +1107,7 @@ class _EstadoChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: fg.withValues(alpha: 0.40)),
+        border: Border.all(color: fg.withOpacity(0.40)),
       ),
       child: Text(
         estado.label,
@@ -1074,7 +1235,7 @@ class _AddNovedadDialogState extends State<_AddNovedadDialog> {
                 const SizedBox(height: 16),
                 InputDecorator(
                   decoration: _formFieldDecoration(
-                    'Limite de disfrute (automatico)',
+                    'Límite de disfrute (automático)',
                   ),
                   child: Text(_DatePickerField._fmt(_autoFechaLimite!)),
                 ),

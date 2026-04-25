@@ -8,7 +8,9 @@ import 'package:hext/features/pad/catalogs/aseguradoras_catalog.dart';
 import 'package:hext/features/pad/summary/pad_summary_compact.dart';
 import 'package:hext/features/pad/summary/pad_summary_domain_adapter.dart';
 import 'package:hext/features/pad/summary/pad_summary_compact_mapper.dart';
+import 'package:hext/features/pad/summary/pad_summary_compact_vm.dart';
 import 'package:hext/features/pad/services/pad_firestore_service.dart';
+import 'package:hext/features/pad/catalogs/barrios_catalog_service.dart';
 import 'package:provider/provider.dart';
 
 enum SexoPaciente { femenino, masculino, otro }
@@ -412,8 +414,7 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
   final TextEditingController _unidadFuncionalOrigenController =
       TextEditingController();
   final TextEditingController _barrioController = TextEditingController();
-  final TextEditingController _barrioSearchController =
-      TextEditingController();
+  final TextEditingController _barrioSearchController = TextEditingController();
   String? _barrioSeleccionado;
   final TextEditingController _direccionController = TextEditingController();
   final TextEditingController _referenciaController = TextEditingController();
@@ -472,6 +473,14 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
   }
 
   void _hydrateFromData(Map<String, dynamic> data) {
+      debugPrint('hydrate keys => \\${data.keys.toList()}');
+      debugPrint('barrio => \\${data['barrio']}');
+      debugPrint('tipoAseguramiento => \\${data['tipoAseguramiento']}');
+      debugPrint('regimenAseguramiento => \\${data['regimenAseguramiento']}');
+      debugPrint('tipoCaptacionPad => \\${data['tipoCaptacionPad']}');
+      debugPrint('especialidadPrincipalTratante => \\${data['especialidadPrincipalTratante']}');
+      debugPrint('grupoRelacionadoRiesgo => \\${data['grupoRelacionadoRiesgo']}');
+      debugPrint('origenPaciente => \\${data['origenPaciente']}');
     _nombreCompletoController.text =
         (data['nombreCompleto'] as String?) ??
         (data['nombre'] as String?) ??
@@ -715,14 +724,22 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
     }
   }
 
+  String _normLabel(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll('_', ' ')
+      .replaceAll('-', ' ')
+      .replaceAll(RegExp(r'\s+'), ' ');
+
   T? _findEnumByLabel<T>(
     Iterable<T> values,
     String? label,
     String Function(T) labelOf,
   ) {
     if (label == null || label.trim().isEmpty) return null;
+    final target = _normLabel(label);
     for (final T value in values) {
-      if (labelOf(value) == label) {
+      if (_normLabel(labelOf(value)) == target) {
         return value;
       }
     }
@@ -927,12 +944,65 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
 
     try {
       if (_isEditing) {
-        await PadFirestoreService.actualizarCandidato(
+        await PadFirestoreService.actualizarCensoPaciente(
           widget.candidatoId!,
           data,
         );
       } else {
         await PadFirestoreService.guardarCandidato(data);
+      }
+
+      // Guardar barrio en catálogo global, sin bloquear el flujo si falla
+      final barrioLimpio = barrio.trim();
+      if (barrioLimpio.isNotEmpty) {
+        try {
+          await BarriosCatalogService.guardarBarrio(barrioLimpio);
+        } catch (e) {
+          debugPrint('No se pudo guardar el barrio en catálogo: $e');
+        }
+      }
+
+      if (!mounted) return;
+
+      final shouldGoToCases = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text(PadUiLabels.caseSaved),
+          content: SingleChildScrollView(
+            child: Text(
+              'Nombre: ${paciente.nombreCompleto}\n'
+              'Identificación: ${paciente.identificacion}\n'
+              'Sexo: ${_sexoPacienteLabel(paciente.sexo)}\n'
+              'Edad: ${paciente.edad}\n'
+              'Tipo captación PAD: ${_tipoCaptacionPadLabel(paciente.tipoCaptacionPad)}\n'
+              'Servicio que presenta: ${paciente.servicioQuePresenta != null ? _servicioQuePresentaLabel(paciente.servicioQuePresenta!) : '-'}\n'
+              'Origen: ${paciente.origenPaciente != null ? _origenPacienteLabel(paciente.origenPaciente!) : '-'}\n'
+              'Especialidad: ${especialidadPersistida ?? '-'}\n'
+              'Barrio: ${barrio.isNotEmpty ? barrio : '-'}\n'
+              'Diagnóstico: ${paciente.diagnostico}\n'
+              'Grupo de riesgo: ${paciente.grupoRelacionadoRiesgo}\n'
+              'Motivo principal: ${paciente.motivoIngresoPrincipal ?? '-'}\n'
+              'Motivos activos: ${paciente.motivosIngresoActivos.isEmpty ? '-' : paciente.motivosIngresoActivos.join(', ')}\n'
+              'Detalle del motivo: ${_motivoDetalleSummary()}\n'
+              'Decisión: ${paciente.decision != null ? _decisionPadLabel(paciente.decision!) : '-'}\n'
+              'Reingreso: ${_isEditing ? (_esReingreso ? 'Sí' : 'No') : '-'}\n'
+              'Causa del reingreso: ${_isEditing && _esReingreso ? (_causaReingreso ?? '-') : '-'}',
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldGoToCases == true && context.mounted) {
+        context.go('/cases');
       }
     } catch (_) {
       if (!mounted) return;
@@ -941,48 +1011,26 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
       ).showSnackBar(const SnackBar(content: Text(PadUiLabels.saveCaseError)));
       return;
     }
-
-    if (!mounted) return;
-
-    showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text(PadUiLabels.caseSaved),
-        content: SingleChildScrollView(
-          child: Text(
-            'Nombre: ${paciente.nombreCompleto}\n'
-            'Identificación: ${paciente.identificacion}\n'
-            'Sexo: ${_sexoPacienteLabel(paciente.sexo)}\n'
-            'Edad: ${paciente.edad}\n'
-            'Tipo captación PAD: ${_tipoCaptacionPadLabel(paciente.tipoCaptacionPad)}\n'
-            'Servicio que presenta: ${paciente.servicioQuePresenta != null ? _servicioQuePresentaLabel(paciente.servicioQuePresenta!) : '-'}\n'
-            'Origen: ${paciente.origenPaciente != null ? _origenPacienteLabel(paciente.origenPaciente!) : '-'}\n'
-            'Especialidad: ${especialidadPersistida ?? '-'}\n'
-            'Diagnóstico: ${paciente.diagnostico}\n'
-            'Grupo de riesgo: ${paciente.grupoRelacionadoRiesgo}\n'
-            'Motivo principal: ${paciente.motivoIngresoPrincipal ?? '-'}\n'
-            'Motivos activos: ${paciente.motivosIngresoActivos.isEmpty ? '-' : paciente.motivosIngresoActivos.join(', ')}\n'
-            'Detalle del motivo: ${_motivoDetalleSummary()}\n'
-            'Decisión: ${paciente.decision != null ? _decisionPadLabel(paciente.decision!) : '-'}\n'
-            'Reingreso: ${_isEditing ? (_esReingreso ? 'Sí' : 'No') : '-'}\n'
-            'Causa del reingreso: ${_isEditing && _esReingreso ? (_causaReingreso ?? '-') : '-'}',
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cerrar'),
-          ),
-        ],
-      ),
-    );
   }
 
-  void _aprobarIngreso() {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+  Future<void> _registrarDecision() async {
+    final decision = _decision == null ? '' : _decisionPadLabel(_decision!).trim();
 
+    if (decision.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona una decisión antes de continuar.')),
+      );
+      return;
+    }
+
+    if (decision == 'Ingreso aprobado') {
+      await _guardar();
+      return;
+    }
+
+    // Para otras decisiones, aquí puedes guardar solo la decisión o ejecutar otro flujo si aplica.
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text(PadUiLabels.caseApprovedForAdmission)),
+      SnackBar(content: Text('Decisión registrada: $decision')),
     );
   }
 
@@ -1422,7 +1470,7 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
 
     String? situacion;
     if (_decision == DecisionPad.ingresoAprobado) {
-      situacion = PadCareSituationLabels.activeInPad;
+      situacion = PadCareSituationLabels.hospitalExtension;
     } else if (_decision == DecisionPad.pendienteValoracion ||
         _decision == DecisionPad.requiereNuevaValoracion) {
       situacion = 'En valoracion';
@@ -1440,9 +1488,36 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
       observaciones: _observacionesController.text.trim(),
       situacionAsistencial: situacion,
       estadoPad: _decision == null ? null : _decisionPadLabel(_decision!),
+      barrio: _barrioController.text.trim(),
     );
 
     return PadSummaryDomainAdapter.toPadCaseData(record);
+  }
+
+  bool _isSummaryEffectivelyEmpty(PadSummaryCompactVm summary) {
+    return summary.principalLabel.trim().toLowerCase() ==
+            'sin motivo principal' &&
+        summary.activeReasonLabels.isEmpty &&
+        summary.shortDetail.trim().toLowerCase() ==
+            'sin detalle clinico resumido' &&
+        summary.generalStatusLabel.trim().toLowerCase() ==
+            'estado no clasificado';
+  }
+
+  bool get _canApproveForAdmission {
+    final bool hasBasics =
+        _nombreCompletoController.text.trim().isNotEmpty &&
+        _identificacionController.text.trim().isNotEmpty &&
+        _sexo != null &&
+        int.tryParse(_edadController.text.trim()) != null;
+
+    final bool hasClinicalCore =
+        _diagnosticoController.text.trim().isNotEmpty &&
+        _grupoRiesgoSeleccionado != null &&
+        _selectedAdmissionReasonKeys.isNotEmpty;
+
+    final bool hasApprovalDecision = _decision == DecisionPad.ingresoAprobado;
+    return hasBasics && hasClinicalCore && hasApprovalDecision;
   }
 
   Widget _buildDatePickerField({
@@ -1905,6 +1980,9 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
   Widget build(BuildContext context) {
     final AppUser? appUser = context.watch<AuthNotifier?>()?.appUser;
     final summary = mapPadSummary(_buildPadCaseDataPreview());
+    final bool summaryEmpty = _isSummaryEffectivelyEmpty(summary);
+    final bool desktop = MediaQuery.sizeOf(context).width >= 1024;
+    final double scrollTopOffset = desktop ? 10 : 8;
     final String nombre = _nombreCompletoController.text.trim();
     final String identificacion = _identificacionController.text.trim();
     final bool hasPatientContext =
@@ -1916,32 +1994,96 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
       color: _surfaceMuted,
       child: Column(
         children: <Widget>[
-          Expanded(
-            child: Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-                children: <Widget>[
-                  if (_isEditing && hasPatientContext) ...<Widget>[
-                    _SectionCard(
-                      title: 'Paciente en edición',
+          // --- HEADER DE MÓDULO Y CHIP DE ESTADO ---
+          Padding(
+            padding: EdgeInsets.fromLTRB(14, scrollTopOffset, 14, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Nuevo candidato PAD',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: _textPrimary,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Registro y valoración inicial para definir ingreso al programa.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _textSecondary,
+                        fontSize: 15,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F3F1),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                       child: Text(
-                        'Paciente: ${nombre.isEmpty ? '--' : nombre} · ${identificacion.isEmpty ? '--' : identificacion}',
+                        _decision == null
+                            ? 'Estado del caso: En valoración'
+                            : _decision == DecisionPad.ingresoAprobado
+                                ? 'Estado del caso: Ingreso aprobado'
+                                : _decision == DecisionPad.ingresoNoAprobado
+                                    ? 'Estado del caso: Ingreso no aprobado'
+                                    : _decision == DecisionPad.pendienteValoracion
+                                        ? 'Estado del caso: Pendiente'
+                                        : 'Estado del caso: Revalorar',
                         style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: _textPrimary,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF17726D),
+                          fontSize: 13.5,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
                   ],
-                  _SectionCard(
-                    title: 'Resumen PAD compacto',
-                    child: PadSummaryCompact(vm: summary),
-                  ),
-                  const SizedBox(height: 16),
-                  _SectionCard(
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Form(
+                key: _formKey,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
+                  children: <Widget>[
+                    // --- RESUMEN SUPERIOR ---
+                    _SectionCard(
+                      title: 'Resumen de valoración PAD',
+                      child: summaryEmpty
+                          ? Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFFFFF),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(0xFFD9E2E7),
+                                ),
+                              ),
+                              child: const Text(
+                                'Completa datos clínicos para habilitar el resumen operativo.',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: _textSecondary,
+                                  height: 1.3,
+                                ),
+                              ),
+                            )
+                          : PadSummaryCompact(vm: summary),
+                    ),
+                    const SizedBox(height: 16),
+                    _SectionCard(
                     title: 'Datos básicos',
                     child: Column(
                       children: <Widget>[
@@ -1978,15 +2120,15 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                               child: Autocomplete<String>(
                                 optionsBuilder:
                                     (TextEditingValue textEditingValue) {
-                                  final String query = textEditingValue.text
-                                      .trim()
-                                      .toLowerCase();
-                                  if (query.isEmpty) return _barrioOptions;
-                                  return _barrioOptions.where(
-                                    (String b) =>
-                                        b.toLowerCase().contains(query),
-                                  );
-                                },
+                                      final String query = textEditingValue.text
+                                          .trim()
+                                          .toLowerCase();
+                                      if (query.isEmpty) return _barrioOptions;
+                                      return _barrioOptions.where(
+                                        (String b) =>
+                                            b.toLowerCase().contains(query),
+                                      );
+                                    },
                                 displayStringForOption: (String value) => value,
                                 onSelected: (String value) {
                                   setState(() {
@@ -2001,35 +2143,38 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                                     }
                                   });
                                 },
-                                fieldViewBuilder: (
-                                  BuildContext ctx,
-                                  TextEditingController autoCtrl,
-                                  FocusNode focusNode,
-                                  VoidCallback onFieldSubmitted,
-                                ) {
-                                  if (autoCtrl.text !=
-                                      _barrioSearchController.text) {
-                                    autoCtrl.text =
-                                        _barrioSearchController.text;
-                                  }
-                                  return TextFormField(
-                                    controller: autoCtrl,
-                                    focusNode: focusNode,
-                                    decoration: _inputDecoration('Barrio'),
-                                    onChanged: (String value) {
-                                      _barrioSearchController.text = value;
-                                      setState(() {
-                                        if (_barrioOptions.contains(value) &&
-                                            value != _barrioOtro) {
-                                          _barrioSeleccionado = value;
-                                          _barrioController.text = value;
-                                        } else {
-                                          _barrioSeleccionado = null;
-                                        }
-                                      });
+                                fieldViewBuilder:
+                                    (
+                                      BuildContext ctx,
+                                      TextEditingController autoCtrl,
+                                      FocusNode focusNode,
+                                      VoidCallback onFieldSubmitted,
+                                    ) {
+                                      if (autoCtrl.text !=
+                                          _barrioSearchController.text) {
+                                        autoCtrl.text =
+                                            _barrioSearchController.text;
+                                      }
+                                      return TextFormField(
+                                        controller: autoCtrl,
+                                        focusNode: focusNode,
+                                        decoration: _inputDecoration('Barrio'),
+                                        onChanged: (String value) {
+                                          _barrioSearchController.text = value;
+                                          setState(() {
+                                            if (_barrioOptions.contains(
+                                                  value,
+                                                ) &&
+                                                value != _barrioOtro) {
+                                              _barrioSeleccionado = value;
+                                              _barrioController.text = value;
+                                            } else {
+                                              _barrioSeleccionado = null;
+                                            }
+                                          });
+                                        },
+                                      );
                                     },
-                                  );
-                                },
                               ),
                             ),
                             _FieldItem(
@@ -2484,11 +2629,12 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                               ),
                             ),
                             _FieldItem(
-                              flex: 22,
+                              flex: 18,
                               child: Column(
                                 children: <Widget>[
                                   DropdownButtonFormField<String>(
                                     initialValue: _grupoRiesgoSeleccionado,
+                                    isExpanded: true,
                                     decoration: _inputDecoration(
                                       'Grupo relacionado de riesgo (GRD)',
                                     ),
@@ -2497,7 +2643,11 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                                           (String value) =>
                                               DropdownMenuItem<String>(
                                                 value: value,
-                                                child: Text(value),
+                                                child: Text(
+                                                  value.toLowerCase(),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
                                               ),
                                         )
                                         .toList(),
@@ -2663,19 +2813,20 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                     ),
                   ],
                   const SizedBox(height: 16),
-                  _SectionCard(
-                    title: 'Decisión',
-                    child: Column(
-                      children: <Widget>[
-                        _AdaptiveFieldsRow(
-                          children: <_FieldItem>[
-                            _FieldItem(
-                              flex: 20,
-                              child: DropdownButtonFormField<DecisionPad>(
-                                initialValue: _decision,
-                                decoration: _inputDecoration('Decisión'),
-                                items:
-                                    _sortedByLabel<DecisionPad>(
+                    // --- SECCIÓN FINAL: DECISIÓN DE INGRESO ---
+                    _SectionCard(
+                      title: 'Decisión de ingreso',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          _AdaptiveFieldsRow(
+                            children: <_FieldItem>[
+                              _FieldItem(
+                                flex: 20,
+                                child: DropdownButtonFormField<DecisionPad>(
+                                  initialValue: _decision,
+                                  decoration: _inputDecoration('Resultado de la valoración'),
+                                  items: _sortedByLabel<DecisionPad>(
                                           DecisionPad.values,
                                           _decisionPadLabel,
                                         )
@@ -2689,97 +2840,132 @@ class _PacienteCaptacionFormState extends State<PacienteCaptacionForm> {
                                               ),
                                         )
                                         .toList(),
-                                onChanged: (DecisionPad? value) {
-                                  setState(() => _decision = value);
-                                },
-                              ),
-                            ),
-                            _FieldItem(
-                              flex: 40,
-                              child: TextFormField(
-                                controller: _observacionesController,
-                                decoration: _inputDecoration('Observaciones'),
-                                maxLines: 1,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (_isEditing) ...<Widget>[
-                          const SizedBox(height: 14),
-                          _AdaptiveFieldsRow(
-                            children: <_FieldItem>[
-                              _FieldItem(
-                                flex: 20,
-                                child: DropdownButtonFormField<bool>(
-                                  initialValue: _esReingreso,
-                                  decoration: _inputDecoration(
-                                    '¿Es reingreso?',
-                                  ),
-                                  items: const <DropdownMenuItem<bool>>[
-                                    DropdownMenuItem<bool>(
-                                      value: false,
-                                      child: Text('No'),
-                                    ),
-                                    DropdownMenuItem<bool>(
-                                      value: true,
-                                      child: Text('Sí'),
-                                    ),
-                                  ],
-                                  onChanged: (bool? value) {
-                                    setState(() {
-                                      _esReingreso = value ?? false;
-                                      if (!_esReingreso) {
-                                        _causaReingreso = null;
-                                      }
-                                    });
+                                  onChanged: (DecisionPad? value) {
+                                    setState(() => _decision = value);
                                   },
                                 ),
                               ),
-                              if (_esReingreso)
+                              _FieldItem(
+                                flex: 40,
+                                child: TextFormField(
+                                  controller: _observacionesController,
+                                  decoration: _inputDecoration('Observaciones'),
+                                  maxLines: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          // Microcopy según selección
+                          if (_decision != null) ...[
+                            const SizedBox(height: 10),
+                            Builder(
+                              builder: (context) {
+                                switch (_decision) {
+                                  case DecisionPad.ingresoAprobado:
+                                    return const Text(
+                                      'El paciente cumple criterios y se aprueba su ingreso al PAD.',
+                                      style: TextStyle(fontSize: 13.5, color: Color(0xFF17726D)),
+                                    );
+                                  case DecisionPad.ingresoNoAprobado:
+                                    return const Text(
+                                      'El paciente no cumple criterios para ingreso al PAD.',
+                                      style: TextStyle(fontSize: 13.5, color: Color(0xFFB42318)),
+                                    );
+                                  case DecisionPad.pendienteValoracion:
+                                    return const Text(
+                                      'La decisión queda pendiente. Se requiere información adicional o seguimiento.',
+                                      style: TextStyle(fontSize: 13.5, color: Color(0xFF946200)),
+                                    );
+                                  case DecisionPad.requiereNuevaValoracion:
+                                    return const Text(
+                                      'Se requiere revalorar el caso antes de tomar una decisión definitiva.',
+                                      style: TextStyle(fontSize: 13.5, color: Color(0xFF946200)),
+                                    );
+                                  default:
+                                    return const SizedBox.shrink();
+                                }
+                              },
+                            ),
+                          ],
+                          if (_isEditing) ...<Widget>[
+                            const SizedBox(height: 14),
+                            _AdaptiveFieldsRow(
+                              children: <_FieldItem>[
                                 _FieldItem(
-                                  flex: 40,
-                                  child: DropdownButtonFormField<String>(
-                                    initialValue: _causaReingreso,
+                                  flex: 20,
+                                  child: DropdownButtonFormField<bool>(
+                                    initialValue: _esReingreso,
                                     decoration: _inputDecoration(
-                                      'Causa del reingreso',
+                                      '¿Es reingreso?',
                                     ),
-                                    items: _causaReingresoOptions
-                                        .map(
-                                          (String value) =>
-                                              DropdownMenuItem<String>(
-                                                value: value,
-                                                child: Text(value),
-                                              ),
-                                        )
-                                        .toList(),
-                                    onChanged: (String? value) {
-                                      setState(() => _causaReingreso = value);
-                                    },
-                                    validator: (String? value) {
-                                      if (_isEditing &&
-                                          _esReingreso &&
-                                          (value == null ||
-                                              value.trim().isEmpty)) {
-                                        return 'Campo obligatorio';
-                                      }
-                                      return null;
+                                    items: const <DropdownMenuItem<bool>>[
+                                      DropdownMenuItem<bool>(
+                                        value: false,
+                                        child: Text('No'),
+                                      ),
+                                      DropdownMenuItem<bool>(
+                                        value: true,
+                                        child: Text('Sí'),
+                                      ),
+                                    ],
+                                    onChanged: (bool? value) {
+                                      setState(() {
+                                        _esReingreso = value ?? false;
+                                        if (!_esReingreso) {
+                                          _causaReingreso = null;
+                                        }
+                                      });
                                     },
                                   ),
                                 ),
-                            ],
-                          ),
+                                if (_esReingreso)
+                                  _FieldItem(
+                                    flex: 40,
+                                    child: DropdownButtonFormField<String>(
+                                      initialValue: _causaReingreso,
+                                      decoration: _inputDecoration(
+                                        'Causa del reingreso',
+                                      ),
+                                      items: _causaReingresoOptions
+                                          .map(
+                                            (String value) =>
+                                                DropdownMenuItem<String>(
+                                                  value: value,
+                                                  child: Text(value),
+                                                ),
+                                          )
+                                          .toList(),
+                                      onChanged: (String? value) {
+                                        setState(() => _causaReingreso = value);
+                                      },
+                                      validator: (String? value) {
+                                        if (_isEditing &&
+                                            _esReingreso &&
+                                            (value == null ||
+                                                value.trim().isEmpty)) {
+                                          return 'Campo obligatorio';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
           _BottomActionBar(
             isEditing: _isEditing,
+            isDesktop: desktop,
+            canApproveForAdmission: _canApproveForAdmission,
             onGuardar: _guardar,
-            onAprobarIngreso: _aprobarIngreso,
+            onAprobarIngreso: _registrarDecision,
             onCancelar: _cancelarEdicion,
           ),
         ],
@@ -2870,12 +3056,16 @@ class _AdaptiveFieldsRow extends StatelessWidget {
 
 class _BottomActionBar extends StatelessWidget {
   final bool isEditing;
+  final bool isDesktop;
+  final bool canApproveForAdmission;
   final VoidCallback onGuardar;
-  final VoidCallback onAprobarIngreso;
+  final Future<void> Function() onAprobarIngreso;
   final VoidCallback onCancelar;
 
   const _BottomActionBar({
     required this.isEditing,
+    required this.isDesktop,
+    required this.canApproveForAdmission,
     required this.onGuardar,
     required this.onAprobarIngreso,
     required this.onCancelar,
@@ -2884,7 +3074,12 @@ class _BottomActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      padding: EdgeInsets.fromLTRB(
+        14,
+        isDesktop ? 8 : 10,
+        14,
+        isDesktop ? 8 : 12,
+      ),
       decoration: const BoxDecoration(
         color: Color(0xFFF3F4F6),
         border: Border(top: BorderSide(color: Color(0xFFD9E2E7))),
@@ -2898,39 +3093,32 @@ class _BottomActionBar extends StatelessWidget {
                 onPressed: onGuardar,
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF17726D),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  padding: EdgeInsets.symmetric(vertical: isDesktop ? 13 : 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
                 child: Text(
-                  isEditing ? PadUiLabels.saveChanges : PadUiLabels.saveCase,
+                  isEditing ? 'Guardar borrador' : 'Guardar borrador',
                 ),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: isEditing
-                  ? OutlinedButton(
-                      onPressed: onCancelar,
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text(PadUiLabels.cancel),
-                    )
-                  : OutlinedButton(
-                      onPressed: onAprobarIngreso,
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text('Aprobar para ingreso'),
-                    ),
+              child: OutlinedButton(
+                onPressed: () async {
+                  await onAprobarIngreso();
+                },
+                style: OutlinedButton.styleFrom(
+                  padding: EdgeInsets.symmetric(
+                    vertical: isDesktop ? 13 : 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text('Registrar decisión'),
+              ),
             ),
           ],
         ),

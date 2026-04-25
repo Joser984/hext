@@ -8,7 +8,7 @@ No incluye aun: migracion tecnica de clases, rutas o Firestore
 
 - Contenedor general del software: Caso PAD.
 - Etapa del flujo (opcional y explicita): Candidato PAD.
-- Ingreso real al programa: Ingreso aprobado, Activo en PAD, No ingreso al programa, Alta, Reingreso.
+- Ingreso real al programa: Ingreso aprobado, Extensión hospitalaria, No ingreso al programa, Alta, Reingreso.
 
 ## Matriz de terminos
 
@@ -45,8 +45,7 @@ No incluye aun: migracion tecnica de clases, rutas o Firestore
 
 ### Situacion asistencial
 
-- Activo en PAD
-- Extension hospitalaria
+- Extensión hospitalaria
 - Alta
 - Reingreso
 - En institucion

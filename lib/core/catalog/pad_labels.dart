@@ -124,7 +124,6 @@ class PadProcessStatusLabels {
 class PadCareSituationLabels {
   const PadCareSituationLabels._();
 
-  static const String activeInPad = 'Activo en PAD';
   static const String hospitalExtension = 'Extensión hospitalaria';
   static const String discharge = 'Alta';
   static const String readmission = 'Reingreso';
@@ -132,7 +131,6 @@ class PadCareSituationLabels {
   static const String noProgramAdmission = 'Sin ingreso al programa';
 
   static const List<String> all = <String>[
-    activeInPad,
     hospitalExtension,
     discharge,
     readmission,

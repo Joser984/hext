@@ -1,51 +1,112 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:hext/core/models/auxiliar_domiciliario.dart';
 import 'package:hext/core/repositories/in_memory_personal_repo.dart';
+import 'package:hext/features/agenda/data/agenda_repo.dart';
+import 'package:hext/features/agenda/domain/agenda_shift_assigner.dart';
 import 'package:hext/features/schedule/horarios_screen.dart';
 import 'package:hext/shared/widgets/agenda_subnav.dart';
 import 'package:hext/shared/widgets/filter_shell.dart';
 import 'package:hext/shared/widgets/light_dropdown.dart';
 import 'package:hext/shared/widgets/light_input.dart';
 import 'package:hext/shared/widgets/module_header.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AgendaScreen extends StatefulWidget {
-  const AgendaScreen({super.key, this.initialSearch});
+  const AgendaScreen({
+    super.key,
+    this.initialSearch,
+    this.initialVisitId,
+    this.initialPatientId,
+    this.initialPendingId,
+    this.sourceContext,
+  });
 
   final String? initialSearch;
+  final String? initialVisitId;
+  final String? initialPatientId;
+  final String? initialPendingId;
+  final String? sourceContext;
 
   @override
   State<AgendaScreen> createState() => _AgendaScreenState();
 }
 
 class _AgendaScreenState extends State<AgendaScreen> {
-  final TextEditingController _buscarController = TextEditingController();
-  final TextEditingController _fechaController = TextEditingController(
-    text: '30/03/2026',
-  );
+  final AgendaRepo _agendaRepo = FirestoreAgendaRepo();
+  final AgendaShiftAssigner _shiftAssigner = const AgendaShiftAssigner();
+
+  late final TextEditingController _buscarController;
+  late final TextEditingController _fechaController;
+
+  Timer? _clockTimer;
+  StreamSubscription<List<AgendaEventRecord>>? _agendaSubscription;
 
   String? _turnoFiltro = 'Todos';
   String? _pendienteFiltro = 'Todos';
   String? _personalFiltro = 'Todos';
+
   final Map<String, _VisitOperationalStatus> _visitOperational =
       <String, _VisitOperationalStatus>{};
-  Timer? _clockTimer;
+
+  bool _linkedFilterDismissed = false;
+  bool _preferFullDayTimeline = false;
 
   List<String> _activeAuxiliares = kHorarioAuxiliaresRegistrados;
+  List<AgendaEventRecord> _allEvents = <AgendaEventRecord>[];
+
+  String? get _linkedVisitId => widget.initialVisitId?.trim().isNotEmpty == true
+      ? widget.initialVisitId!.trim()
+      : null;
+
+  String? get _linkedPatientId =>
+      widget.initialPatientId?.trim().isNotEmpty == true
+          ? widget.initialPatientId!.trim()
+          : null;
+
+  String? get _linkedPendingId =>
+      widget.initialPendingId?.trim().isNotEmpty == true
+          ? widget.initialPendingId!.trim()
+          : null;
+
+  bool get _hasLinkedIdentifiers =>
+      !_linkedFilterDismissed &&
+      (_linkedVisitId != null ||
+          _linkedPatientId != null ||
+          _linkedPendingId != null);
 
   @override
   void initState() {
     super.initState();
+
     final String seededSearch = widget.initialSearch?.trim() ?? '';
-    if (seededSearch.isNotEmpty) {
-      _buscarController.text = seededSearch;
+    _buscarController = TextEditingController(
+      text: seededSearch.isNotEmpty ? seededSearch : '',
+    );
+    _fechaController = TextEditingController();
+
+    if (_hasLinkedIdentifiers) {
+      _fechaController.clear();
+    } else {
+      final DateTime now = DateTime.now();
+      _fechaController.text =
+          '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
     }
+
     _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted) return;
       setState(() {});
+    });
+
+    _agendaSubscription = _agendaRepo.watchAgendaEvents().listen((
+      List<AgendaEventRecord> events,
+    ) {
+      if (!mounted) return;
+      setState(() {
+        _allEvents = events;
+      });
     });
   }
 
@@ -57,207 +118,95 @@ class _AgendaScreenState extends State<AgendaScreen> {
         .items
         .where((AuxiliarDomiciliario a) => a.activo)
         .toList();
+
     _activeAuxiliares = active
         .map((AuxiliarDomiciliario a) => a.nombreCompleto)
         .toList();
+
     if (_activeAuxiliares.isEmpty) {
       _activeAuxiliares = kHorarioAuxiliaresRegistrados;
     }
   }
 
-  final List<_AgendaVisitItem> _allVisits = <_AgendaVisitItem>[
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '6:00',
-      paciente: 'GLORIA CRISTINA VARGAS DE ROJANO CC 30769875',
-      edad: 76,
-      sexo: 'F',
-      aseguradora: 'Nueva EPS',
-      dx: 'CELULITIS MIEMBRO INFERIOR IZQUIERDO + INSUFICIENCIA VENOSA',
-      tratamiento:
-          'AMLODIPINO TAB 10MG VO CADA DÍA · CARVEDILOL TAB 6.25MG VO CADA 12 HORAS · '
-          'LINAGLIPTINA TAB 5MG VO CADA DÍA · TRIMETOPRIM SULFAMETOXAZOL 3 AMP IV CADA 8 HORAS · '
-          'FI: 25/03/2026 · FF: 30/03/2026 · PARACETAMOL 1GR IV CADA 8 HORAS',
-      barrio: 'BOSTON',
-      direccion: 'CRR 46 N° 31D - 32',
-      contacto: '3245304998 + 3245897047',
-      pendiente: '',
-      personalAsignado: 'LUIS CASTRO',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '7:00',
-      paciente: 'YOVANNE JOSE PEREZ BARRIOS CC 73578984',
-      edad: 68,
-      sexo: 'F',
-      aseguradora: 'Sura',
-      dx: 'GLUCOMETRÍAS PRECOMIDAS Y A LAS 9 PM · L031 - CELULITIS DE OTRAS PARTES DE LOS MIEMBROS',
-      tratamiento:
-          'CLINDAMICINA 600 MG ENDOVENOSO CADA 8 HORAS · PARACETAMOL 1 GR IV CADA 8 HORAS · '
-          'ENOXAPARINA 80 MG SC CADA 24 HORAS',
-      barrio: 'LA CAMPIÑA',
-      direccion: 'TRV 47 # 23-44',
-      referencia: 'ENTRANDO POR EL PATILLAZO, 3 CUADRAS EN TODA LA ESQUINA',
-      contacto: '3242313723 + 3014541144',
-      pendiente: '',
-      personalAsignado: '',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '8:00',
-      paciente: 'ANA CANDELARIA PEREZ HERRERA CC 33153174',
-      edad: 70,
-      sexo: 'F',
-      aseguradora: 'Coosalud',
-      dx: 'L031 - CELULITIS DE OTRAS PARTES DE LOS MIEMBROS + DIABETES',
-      tratamiento:
-          'TRIMETOPRIM/SULFAMETOXAZOL 3 AMP IV CADA 12 HORAS · PARACETAMOL 1 GR IV CADA 12 HORAS · '
-          'LINAGLIPTINA 5 MG VO CADA DÍA + GLUCOMETRÍAS PRECOMIDAS Y A LAS 21 HORAS',
-      barrio: 'TACARIGUA',
-      direccion: 'MZ 14 LOTE 20',
-      referencia: 'ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZÁN 2',
-      contacto: '3215261361 + 3222252817',
-      pendiente: '',
-      personalAsignado: 'LUIS CASTRO',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '14:00',
-      paciente: 'ANA CANDELARIA PEREZ HERRERA CC 33153174',
-      edad: 70,
-      sexo: 'F',
-      aseguradora: 'Coosalud',
-      dx: 'L031 - CELULITIS DE OTRAS PARTES DE LOS MIEMBROS + DIABETES',
-      tratamiento:
-          'TRIMETOPRIM/SULFAMETOXAZOL 3 AMP IV CADA 12 HORAS · PARACETAMOL 1 GR IV CADA 12 HORAS · '
-          'LINAGLIPTINA 5 MG VO CADA DÍA + GLUCOMETRÍAS PRECOMIDAS Y A LAS 21 HORAS',
-      barrio: 'TACARIGUA',
-      direccion: 'MZ 14 LOTE 20',
-      referencia: 'ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZÁN 2',
-      contacto: '3215261361 + 3222252817',
-      pendiente: '',
-      personalAsignado: '',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '14:00',
-      paciente: 'GLORIA CRISTINA VARGAS DE ROJANO CC 30769875',
-      edad: 76,
-      sexo: 'F',
-      aseguradora: 'Nueva EPS',
-      dx: 'CELULITIS MIEMBRO INFERIOR IZQUIERDO + INSUFICIENCIA VENOSA',
-      tratamiento:
-          'AMLODIPINO TAB 10MG VO CADA DÍA · CARVEDILOL TAB 6.25MG VO CADA 12 HORAS · '
-          'LINAGLIPTINA TAB 5MG VO CADA DÍA · TRIMETOPRIM SULFAMETOXAZOL 3 AMP IV CADA 8 HORAS · '
-          'FI: 25/03/2026 · FF: 30/03/2026 · PARACETAMOL 1GR IV CADA 8 HORAS',
-      barrio: 'BOSTON',
-      direccion: 'CRR 46 N° 31D - 32',
-      contacto: '3245304998 + 3245897047',
-      pendiente: '',
-      personalAsignado: 'LUIS CASTRO',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '20:00',
-      paciente: 'ANA CANDELARIA PEREZ HERRERA CC 33153174',
-      edad: 70,
-      sexo: 'F',
-      aseguradora: 'Coosalud',
-      dx: 'L031 - CELULITIS DE OTRAS PARTES DE LOS MIEMBROS + DIABETES',
-      tratamiento:
-          'TRIMETOPRIM/SULFAMETOXAZOL 3 AMP IV CADA 12 HORAS · PARACETAMOL 1 GR IV CADA 12 HORAS · '
-          'LINAGLIPTINA 5 MG VO CADA DÍA + GLUCOMETRÍAS PRECOMIDAS Y A LAS 21 HORAS',
-      barrio: 'TACARIGUA',
-      direccion: 'MZ 14 LOTE 20',
-      referencia: 'ENTRANDO POR CLÍNICA BARÚ, AL FINAL AL FRENTE DE LA TIENDA TIZÁN 2',
-      contacto: '3215261361 + 3222252817',
-      pendiente: '',
-      personalAsignado: 'LUIS CASTRO',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '21:00',
-      paciente: 'GLORIA CRISTINA VARGAS DE ROJANO CC 30769875',
-      edad: 76,
-      sexo: 'F',
-      aseguradora: 'Nueva EPS',
-      dx: 'CELULITIS MIEMBRO INFERIOR IZQUIERDO + INSUFICIENCIA VENOSA',
-      tratamiento:
-          'AMLODIPINO TAB 10MG VO CADA DÍA · CARVEDILOL TAB 6.25MG VO CADA 12 HORAS · '
-          'LINAGLIPTINA TAB 5MG VO CADA DÍA · TRIMETOPRIM SULFAMETOXAZOL 3 AMP IV CADA 8 HORAS · '
-          'FI: 25/03/2026 · FF: 30/03/2026 · PARACETAMOL 1GR IV CADA 8 HORAS',
-      barrio: 'BOSTON',
-      direccion: 'CRR 46 N° 31D - 32',
-      contacto: '3245304998 + 3245897047',
-      pendiente: '',
-      personalAsignado: 'LUIS CASTRO',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '22:00',
-      paciente: 'JUAN DAVID FERIA PERTUZ CC 1007154767',
-      edad: 49,
-      sexo: 'M',
-      aseguradora: 'Sanitas',
-      dx: 'FRACTURA SUPRA E INTERCONDÍLEA DE HÚMERO DERECHO',
-      tratamiento: 'PARACETAMOL 2 GR IV CADA 12 HORAS',
-      barrio: 'SAN FERNANDO',
-      direccion: 'CALLE LOS PALENQUEROS MZ 7 LOT 14 2 PISO',
-      referencia: 'SECTOR NUEVA JERUSALÉN',
-      contacto: '3043835121 + 3024683411',
-      pendiente: '',
-      personalAsignado: 'LUIS CASTRO',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '9:00',
-      paciente: 'EMIRONEL MEZA PADILLA 73000202 (PAPÁ DE CECILIA)',
-      edad: 63,
-      sexo: 'M',
-      aseguradora: 'Mutual Ser',
-      dx: 'L030 - CELULITIS DE LOS DEDOS DE LA MANO Y DEL PIE',
-      tratamiento: 'CURACIÓN POR CLÍNICA DE HERIDA + PARACETAMOL CADA 12 HORAS',
-      barrio: 'EL POZÓN',
-      direccion: 'MZ 139 A LOTE 5',
-      referencia: 'SECTOR LOS LAURELES, COLEGIO BONI',
-      contacto: '3044544816',
-      pendiente: 'CURACIÓN',
-      personalAsignado: '',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '10:00',
-      paciente: 'ROSA ARRIETA ATENCIO CC 45456552',
-      edad: 72,
-      sexo: 'F',
-      aseguradora: 'Nueva EPS',
-      dx: 'L984 - ÚLCERA CRÓNICA DE LA PIEL + E106 - DIABETES MELLITUS INSULINODEPENDIENTE',
-      tratamiento: 'CURACIÓN POR CLÍNICA DE HERIDA',
-      barrio: 'CARACOLES',
-      direccion: 'MZ 65 L 5',
-      referencia: 'ENTRANDO POR EL SEMÁFORO DE LA PRINCIPAL, RESTAURANTE LA MARQUEZA',
-      contacto: '3005687846',
-      pendiente: 'CURACIÓN',
-      personalAsignado: '',
-    ),
-    _AgendaVisitItem(
-      fecha: '30/03/2026',
-      hora: '17:00',
-      paciente: 'JHORDAN JESITH MELENDEZ ALCALA CC 1050038030',
-      edad: 29,
-      sexo: 'M',
-      aseguradora: 'Sura',
-      dx: 'S923 - FRACTURA DE HUESO DEL METATARSO + S932 - RUPTURA DE LIGAMENTOS A NIVEL DEL TOBILLO Y DEL PIE',
-      tratamiento:
-          'DIPIRONA 1 GR IV CADA 12 HR + PARACETAMOL 1 GR IV CADA 12 HR',
-      barrio: 'CALLE LA ESTRELLA, TURBACO',
-      direccion: 'CALLE 4 # 5-30',
-      referencia: 'SECTOR EL BOLSILLO',
-      contacto: '3206700469 - 3212948616',
-      pendiente: '',
-      personalAsignado: 'NATALY VERGARA',
-    ),
-  ];
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    _agendaSubscription?.cancel();
+    _buscarController.dispose();
+    _fechaController.dispose();
+    super.dispose();
+  }
+
+  _AgendaVisitItem _mapEventToVisitItem(AgendaEventRecord item) {
+    String two(int value) => value.toString().padLeft(2, '0');
+
+    final String fecha =
+        '${two(item.fecha.day)}/${two(item.fecha.month)}/${item.fecha.year}';
+
+    return _AgendaVisitItem(
+      fecha: fecha,
+      hora: item.hora,
+      paciente: item.patientDisplay,
+      patientId: item.patientId,
+      visitId: item.id,
+      pendingId: null,
+      edad: null,
+      sexo: null,
+      aseguradora: null,
+      dx: item.dx,
+      tratamiento: item.tratamiento,
+      barrio: item.barrio.isEmpty ? null : item.barrio,
+      direccion: item.direccion,
+      referencia: item.referencia.isEmpty ? null : item.referencia,
+      contacto: item.contacto,
+      pendiente: item.estadoAgenda,
+      personalAsignado: item.responsableNombre ?? '',
+    );
+  }
+
+  AgendaAssignableVisit _toAssignableVisit(_AgendaVisitItem item) {
+    return AgendaAssignableVisit(
+      fecha: item.fecha,
+      hora: item.hora,
+      paciente: item.paciente,
+      patientId: item.patientId,
+      visitId: item.visitId,
+      pendingId: item.pendingId,
+      edad: item.edad,
+      sexo: item.sexo,
+      aseguradora: item.aseguradora,
+      dx: item.dx,
+      tratamiento: item.tratamiento,
+      barrio: item.barrio,
+      direccion: item.direccion,
+      referencia: item.referencia,
+      contacto: item.contacto,
+      pendiente: item.pendiente,
+      personalAsignado: item.personalAsignado,
+    );
+  }
+
+  _AgendaVisitItem _fromAssignableVisit(AgendaAssignableVisit item) {
+    return _AgendaVisitItem(
+      fecha: item.fecha,
+      hora: item.hora,
+      paciente: item.paciente,
+      patientId: item.patientId,
+      visitId: item.visitId,
+      pendingId: item.pendingId,
+      edad: item.edad,
+      sexo: item.sexo,
+      aseguradora: item.aseguradora,
+      dx: item.dx,
+      tratamiento: item.tratamiento,
+      barrio: item.barrio,
+      direccion: item.direccion,
+      referencia: item.referencia,
+      contacto: item.contacto,
+      pendiente: item.pendiente,
+      personalAsignado: item.personalAsignado,
+    );
+  }
 
   List<String> get _personalOptions {
     final Set<String> values = _resolvedVisits
@@ -269,7 +218,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
   }
 
   List<String> get _pendienteOptions {
-    final Set<String> values = _allVisits
+    final Set<String> values = _resolvedVisits
         .map((_AgendaVisitItem e) => e.pendiente.trim())
         .where((String e) => e.isNotEmpty)
         .toSet();
@@ -278,10 +227,45 @@ class _AgendaScreenState extends State<AgendaScreen> {
   }
 
   bool get _hasActiveFilters {
-    return _buscarController.text.trim().isNotEmpty ||
+    return _hasLinkedIdentifiers ||
+        _buscarController.text.trim().isNotEmpty ||
         (_turnoFiltro != null && _turnoFiltro != 'Todos') ||
         (_pendienteFiltro != null && _pendienteFiltro != 'Todos') ||
         (_personalFiltro != null && _personalFiltro != 'Todos');
+  }
+
+  List<_AgendaVisitItem> get _resolvedVisits {
+    final List<_AgendaVisitItem> recalculables = <_AgendaVisitItem>[];
+    final List<_AgendaVisitItem> fijos = <_AgendaVisitItem>[];
+
+    for (final AgendaEventRecord event in _allEvents) {
+      final _AgendaVisitItem item = _mapEventToVisitItem(event);
+      final bool locked = event.isClosed || event.estadoAgenda == 'finalizada';
+
+      if (locked) {
+        fijos.add(item);
+      } else {
+        recalculables.add(item);
+      }
+    }
+
+    final List<AgendaAssignableVisit> assignable = recalculables
+        .map(_toAssignableVisit)
+        .toList();
+
+    final List<AgendaAssignableVisit> resolved =
+        _shiftAssigner.assignResponsibles(
+      visits: assignable,
+      activeAuxiliares: _activeAuxiliares,
+    );
+
+    return <_AgendaVisitItem>[
+      ...fijos,
+      ...resolved.map(_fromAssignableVisit),
+    ]..sort(
+        (_AgendaVisitItem a, _AgendaVisitItem b) =>
+            _hourToInt(a.hora).compareTo(_hourToInt(b.hora)),
+      );
   }
 
   List<_AgendaVisitItem> get _filteredVisits {
@@ -301,6 +285,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
       final bool matchesFecha = fecha.isEmpty || item.fecha == fecha;
 
+      final bool matchesLinkedIdentifiers =
+          !_hasLinkedIdentifiers ||
+          ((_linkedVisitId == null || item.visitId == _linkedVisitId) &&
+              (_linkedPatientId == null ||
+                  item.patientId == _linkedPatientId) &&
+              (_linkedPendingId == null || item.pendingId == _linkedPendingId));
+
       final bool matchesTurno =
           _turnoFiltro == null ||
           _turnoFiltro == 'Todos' ||
@@ -317,65 +308,16 @@ class _AgendaScreenState extends State<AgendaScreen> {
           item.personalAsignado == _personalFiltro;
 
       return matchesQuery &&
+          matchesLinkedIdentifiers &&
           matchesFecha &&
           matchesTurno &&
           matchesPendiente &&
           matchesPersonal;
-    }).toList()..sort(
-      (_AgendaVisitItem a, _AgendaVisitItem b) =>
-          _hourToInt(a.hora).compareTo(_hourToInt(b.hora)),
-    );
-  }
-
-  List<_AgendaVisitItem> get _resolvedVisits {
-    final Map<String, List<_AgendaVisitItem>> grouped =
-        <String, List<_AgendaVisitItem>>{};
-
-    for (final _AgendaVisitItem item in _allVisits) {
-      final String key = '${item.fecha}|${item.hora}';
-      grouped.putIfAbsent(key, () => <_AgendaVisitItem>[]).add(item);
-    }
-
-    final List<_AgendaVisitItem> resolved = <_AgendaVisitItem>[];
-
-    for (final MapEntry<String, List<_AgendaVisitItem>> entry
-        in grouped.entries) {
-      final List<_AgendaVisitItem> slotItems = entry.value;
-
-      if (slotItems.isEmpty) {
-        continue;
-      }
-
-      final DateTime? parsedDate = _tryParseDate(slotItems.first.fecha);
-      if (parsedDate == null) {
-        resolved.addAll(slotItems);
-        continue;
-      }
-
-      final List<String> responsibles =
-          AgendaResponsibleResolver.resolveResponsiblesForSlot(
-            date: parsedDate,
-            hora: slotItems.first.hora,
-            nombres: _activeAuxiliares,
-          );
-
-      if (responsibles.isEmpty) {
-        resolved.addAll(
-          slotItems.map(
-            (_AgendaVisitItem item) => item.copyWith(personalAsignado: ''),
-          ),
-        );
-        continue;
-      }
-
-      for (int i = 0; i < slotItems.length; i++) {
-        final _AgendaVisitItem item = slotItems[i];
-        final String responsible = responsibles[i % responsibles.length];
-        resolved.add(item.copyWith(personalAsignado: responsible));
-      }
-    }
-
-    return resolved;
+    }).toList()
+      ..sort(
+        (_AgendaVisitItem a, _AgendaVisitItem b) =>
+            _hourToInt(a.hora).compareTo(_hourToInt(b.hora)),
+      );
   }
 
   List<_AgendaRowData> get _displayRows {
@@ -396,10 +338,33 @@ class _AgendaScreenState extends State<AgendaScreen> {
       grouped.putIfAbsent(item.hora, () => <_AgendaVisitItem>[]).add(item);
     }
 
+    final bool shouldCompactHours =
+        !_preferFullDayTimeline &&
+        visits.isNotEmpty &&
+        visits.length <= 3;
+
+    int startHour = 6;
+    int endHour = 22;
+
+    if (shouldCompactHours) {
+      int? minHour;
+      int? maxHour;
+      for (final String hora in grouped.keys) {
+        final int hour = _hourToInt(hora);
+        minHour = minHour == null ? hour : (hour < minHour ? hour : minHour);
+        maxHour = maxHour == null ? hour : (hour > maxHour ? hour : maxHour);
+      }
+      if (minHour != null && maxHour != null) {
+        startHour = (minHour - 1).clamp(6, 22);
+        endHour = (maxHour + 1).clamp(6, 22);
+      }
+    }
+
     final List<_AgendaRowData> rows = <_AgendaRowData>[];
-    for (int hour = 6; hour <= 22; hour++) {
+    for (int hour = startHour; hour <= endHour; hour++) {
       final String key = '$hour:00';
-      final List<_AgendaVisitItem> items = grouped[key] ?? <_AgendaVisitItem>[];
+      final List<_AgendaVisitItem> items =
+          grouped[key] ?? <_AgendaVisitItem>[];
 
       if (items.isEmpty) {
         rows.add(_AgendaRowData(hora: key));
@@ -413,54 +378,60 @@ class _AgendaScreenState extends State<AgendaScreen> {
   }
 
   @override
-  void dispose() {
-    _clockTimer?.cancel();
-    _buscarController.dispose();
-    _fechaController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final bool isEmpty = _filteredVisits.isEmpty;
 
     return Container(
       color: const Color(0xFFF5F7FA),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final double horizontalPadding = constraints.maxWidth >= 900
-              ? 16
-              : 12;
+          final double horizontalPadding =
+              constraints.maxWidth >= 900 ? 16 : 12;
+          final double topScrollOffset = constraints.maxWidth >= 900 ? 8 : 6;
 
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              20,
-              horizontalPadding,
-              28,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                ModuleHeader(
-                  title: 'Agenda asistencial',
-                  subtitle:
-                      'Gestión de visitas, seguimiento operativo y control diario.',
-                ),
-                const SizedBox(height: 10),
-                const AgendaSubnav(section: AgendaSubnavSection.visitas),
-                const SizedBox(height: 12),
-                _buildFiltersShell(),
-                const SizedBox(height: 12),
-                _buildSectionHeader(theme),
-                const SizedBox(height: 8),
-                constraints.maxWidth < 900
-                    ? _buildMobileAgenda()
-                    : SizedBox(
-                        height: 620,
-                        child: _AgendaGrid(rows: _displayRows),
+          return Padding(
+            padding: EdgeInsets.only(top: topScrollOffset),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                10,
+                horizontalPadding,
+                24,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  ModuleHeader(
+                    title: constraints.maxWidth >= 1100
+                        ? 'Visitas asistenciales'
+                        : 'Agenda asistencial',
+                    subtitle:
+                        'Gestión de visitas, seguimiento operativo y control diario.',
+                  ),
+                  const SizedBox(height: 8),
+                  const AgendaSubnav(section: AgendaSubnavSection.visitas),
+                  const SizedBox(height: 10),
+                  _buildFiltersShell(),
+                  const SizedBox(height: 10),
+                  _buildSectionHeader(theme),
+                  const SizedBox(height: 6),
+                  if (isEmpty)
+                    _buildEmptyAgendaState(constraints)
+                  else if (constraints.maxWidth < 900)
+                    _buildMobileAgenda()
+                  else
+                    SizedBox(
+                      height: 620,
+                      child: _AgendaGrid(
+                        rows: _displayRows,
+                        emptyMessage: _hasLinkedIdentifiers
+                            ? 'No se encontró una visita asociada a este pendiente.'
+                            : 'No hay registros para mostrar.',
                       ),
-              ],
+                    ),
+                ],
+              ),
             ),
           );
         },
@@ -475,20 +446,20 @@ class _AgendaScreenState extends State<AgendaScreen> {
         final double searchWidth = maxWidth >= 1280
             ? 320
             : maxWidth >= 900
-            ? 280
-            : maxWidth;
+                ? 280
+                : maxWidth;
         final double fieldWidth = maxWidth >= 1280
             ? 185
             : maxWidth >= 900
-            ? (maxWidth - 12) / 2
-            : maxWidth;
+                ? (maxWidth - 12) / 2
+                : maxWidth;
 
         return FilterShell(
-          title: 'Filtros y acciones',
-          subtitle: 'Organiza la agenda con una vista clara y operativa.',
+          title: 'Filtros',
+          subtitle: 'Filtra y encuentra visitas rápidamente.',
           fields: Wrap(
-            spacing: 12,
-            runSpacing: 12,
+            spacing: 10,
+            runSpacing: 8,
             children: <Widget>[
               SizedBox(
                 width: searchWidth,
@@ -570,7 +541,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
             runSpacing: 10,
             children: <Widget>[
               SizedBox(
-                height: 40,
+                height: 38,
                 child: OutlinedButton.icon(
                   onPressed: _exportAgendaPdf,
                   style: OutlinedButton.styleFrom(
@@ -578,7 +549,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                   ),
                   icon: const Icon(
                     Icons.picture_as_pdf_rounded,
@@ -592,7 +563,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                 ),
               ),
               SizedBox(
-                height: 40,
+                height: 38,
                 child: OutlinedButton.icon(
                   onPressed: _clearFilters,
                   style: OutlinedButton.styleFrom(
@@ -600,7 +571,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                   ),
                   icon: const Icon(
                     Icons.refresh_rounded,
@@ -613,25 +584,6 @@ class _AgendaScreenState extends State<AgendaScreen> {
                   ),
                 ),
               ),
-              SizedBox(
-                height: 40,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Acción: Nueva visita')),
-                    );
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF17726D),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Nueva visita'),
-                ),
-              ),
             ],
           ),
         );
@@ -639,32 +591,167 @@ class _AgendaScreenState extends State<AgendaScreen> {
     );
   }
 
-  Widget _buildSectionHeader(ThemeData theme) {
-    return Row(
-      children: <Widget>[
-        Text(
-          'Visitas',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF243247),
-          ),
+  Widget _buildEmptyAgendaState(BoxConstraints constraints) {
+    return Center(
+      child: Container(
+        width: constraints.maxWidth < 500 ? double.infinity : 440,
+        margin: const EdgeInsets.symmetric(vertical: 48),
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFDCE3EA)),
         ),
-        const SizedBox(width: 10),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE7F3F1),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            '${_filteredVisits.length} registros',
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF17726D),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            const Icon(Icons.event_busy, size: 48, color: Color(0xFFB0B8C1)),
+            const SizedBox(height: 16),
+            const Text(
+              'No hay visitas programadas para esta fecha',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF243247),
+              ),
             ),
-          ),
+            const SizedBox(height: 10),
+            const Text(
+              'Puedes crear una nueva visita o revisar los horarios de auxiliares para planificar tu agenda.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Color(0xFF667085)),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Acción: Crear visita')),
+                );
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF17726D),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              icon: const Icon(Icons.add, size: 20),
+              label:
+                  const Text('Crear visita', style: TextStyle(fontSize: 15)),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const HorariosScreen()),
+                );
+              },
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFB0B8C1)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              icon: const Icon(
+                Icons.schedule,
+                size: 18,
+                color: Color(0xFF17726D),
+              ),
+              label: const Text(
+                'Ir a horarios',
+                style: TextStyle(fontSize: 14, color: Color(0xFF17726D)),
+              ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(ThemeData theme) {
+    final bool canCompact = !_hasActiveFilters && _filteredVisits.isNotEmpty;
+    final bool compactActive =
+        canCompact && !_preferFullDayTimeline && _filteredVisits.length <= 3;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: <Widget>[
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 10,
+          children: <Widget>[
+            Text(
+              'Visitas',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF243247),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE7F3F1),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${_filteredVisits.length} registros',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF17726D),
+                ),
+              ),
+            ),
+            if (compactActive)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF2F4F7),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'Vista compacta',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF475467),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        if (canCompact)
+          SegmentedButton<bool>(
+            style: SegmentedButton.styleFrom(
+              selectedForegroundColor: Colors.white,
+              selectedBackgroundColor: const Color(0xFF0F766E),
+            ),
+            segments: const <ButtonSegment<bool>>[
+              ButtonSegment<bool>(
+                value: false,
+                label: Text('Compacta'),
+                icon: Icon(Icons.compress_rounded, size: 16),
+              ),
+              ButtonSegment<bool>(
+                value: true,
+                label: Text('Día completo'),
+                icon: Icon(Icons.view_stream_rounded, size: 16),
+              ),
+            ],
+            selected: <bool>{_preferFullDayTimeline},
+            onSelectionChanged: (Set<bool> selected) {
+              if (selected.isEmpty) return;
+              setState(() {
+                _preferFullDayTimeline = selected.first;
+              });
+            },
+          ),
       ],
     );
   }
@@ -692,14 +779,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
     setState(() {
       _fechaController.text =
-          '${selected.day.toString().padLeft(2, '0')}/'
-          '${selected.month.toString().padLeft(2, '0')}/'
-          '${selected.year}';
+          '${selected.day.toString().padLeft(2, '0')}/${selected.month.toString().padLeft(2, '0')}/${selected.year}';
     });
   }
 
   void _clearFilters() {
     setState(() {
+      _linkedFilterDismissed = true;
       _buscarController.clear();
       _fechaController.clear();
       _turnoFiltro = 'Todos';
@@ -710,7 +796,6 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
   void _exportAgendaPdf() {
     final String fileName = _buildAgendaPdfFileName();
-
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('Exportando: $fileName')));
@@ -987,9 +1072,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
       state: nextState,
       reportedAt: now,
       onlineAt: now,
-      locationSnapshot: nextState == _VisitFlowState.llego
-          ? item.direccion
-          : null,
+      locationSnapshot:
+          nextState == _VisitFlowState.llego ? item.direccion : null,
     );
 
     setState(() {
@@ -1002,7 +1086,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     final DateTime now = DateTime.now();
     final _VisitOperationalStatus current =
         _visitOperational[key] ??
-        const _VisitOperationalStatus(state: _VisitFlowState.pendiente);
+            const _VisitOperationalStatus(state: _VisitFlowState.pendiente);
 
     setState(() {
       _visitOperational[key] = current.copyWith(
@@ -1236,8 +1320,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
 class _AgendaGrid extends StatelessWidget {
   final List<_AgendaRowData> rows;
+  final String emptyMessage;
 
-  const _AgendaGrid({required this.rows});
+  const _AgendaGrid({required this.rows, required this.emptyMessage});
 
   @override
   Widget build(BuildContext context) {
@@ -1250,11 +1335,11 @@ class _AgendaGrid extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: const Color(0xFFDCE3EA)),
         ),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
           child: Text(
-            'No hay registros para mostrar.',
-            style: TextStyle(fontSize: 14, color: Color(0xFF667085)),
+            emptyMessage,
+            style: const TextStyle(fontSize: 14, color: Color(0xFF667085)),
           ),
         ),
       );
@@ -1264,8 +1349,8 @@ class _AgendaGrid extends StatelessWidget {
       builder: (BuildContext context, BoxConstraints constraints) {
         final double tableWidth =
             constraints.maxWidth > _AgendaTableMetrics.minTotalWidth
-            ? constraints.maxWidth
-            : _AgendaTableMetrics.minTotalWidth;
+                ? constraints.maxWidth
+                : _AgendaTableMetrics.minTotalWidth;
 
         return Container(
           decoration: BoxDecoration(
@@ -1277,10 +1362,8 @@ class _AgendaGrid extends StatelessWidget {
           child: Column(
             children: <Widget>[
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 14,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                 decoration: const BoxDecoration(
                   border: Border(bottom: BorderSide(color: Color(0xFFE7ECF1))),
                 ),
@@ -1395,10 +1478,7 @@ class _AgendaTableRow extends StatelessWidget {
             width: _AgendaTableMetrics.tratamiento,
           ),
           isEmpty
-              ? _BodyCell(
-                  text: '',
-                  width: _AgendaTableMetrics.direccion,
-                )
+              ? _BodyCell(text: '', width: _AgendaTableMetrics.direccion)
               : _CustomBodyCell(
                   width: _AgendaTableMetrics.direccion,
                   child: _AddressBlock(
@@ -1543,6 +1623,9 @@ class _AgendaVisitItem {
   final String fecha;
   final String hora;
   final String paciente;
+  final String? patientId;
+  final String? visitId;
+  final String? pendingId;
   final int? edad;
   final String? sexo;
   final String? aseguradora;
@@ -1559,6 +1642,9 @@ class _AgendaVisitItem {
     required this.fecha,
     required this.hora,
     required this.paciente,
+    this.patientId,
+    this.visitId,
+    this.pendingId,
     this.edad,
     this.sexo,
     this.aseguradora,
@@ -1576,6 +1662,9 @@ class _AgendaVisitItem {
     String? fecha,
     String? hora,
     String? paciente,
+    String? patientId,
+    String? visitId,
+    String? pendingId,
     int? edad,
     String? sexo,
     String? aseguradora,
@@ -1592,6 +1681,9 @@ class _AgendaVisitItem {
       fecha: fecha ?? this.fecha,
       hora: hora ?? this.hora,
       paciente: paciente ?? this.paciente,
+      patientId: patientId ?? this.patientId,
+      visitId: visitId ?? this.visitId,
+      pendingId: pendingId ?? this.pendingId,
       edad: edad ?? this.edad,
       sexo: sexo ?? this.sexo,
       aseguradora: aseguradora ?? this.aseguradora,
@@ -1660,43 +1752,6 @@ class _AgendaFormatters {
     if (parts.length == 1) return parts.first;
 
     return parts.join(' +\n');
-  }
-
-  static String formatAddress(String text, {String fallback = ''}) {
-    final String normalized = normalizeSpace(text);
-    if (normalized.isEmpty) return fallback;
-
-    final List<String> rawParts = normalized
-        .split('·')
-        .map((String e) => normalizeSpace(e))
-        .where((String e) => e.isNotEmpty)
-        .toList();
-
-    if (rawParts.isEmpty) return fallback;
-
-    final List<String> lines = <String>[];
-
-    for (final String rawPart in rawParts) {
-      final String lower = rawPart.toLowerCase();
-
-      if (lower.startsWith('referencia:')) {
-        final String value = rawPart.substring('referencia:'.length).trim();
-        lines.add('Referencia: ${toSentenceCase(value)}');
-        continue;
-      }
-
-      if (lower.startsWith('punto de referencia:')) {
-        final String value = rawPart
-            .substring('punto de referencia:'.length)
-            .trim();
-        lines.add('Punto de referencia: ${toSentenceCase(value)}');
-        continue;
-      }
-
-      lines.add(toSentenceCase(rawPart));
-    }
-
-    return lines.join('\n');
   }
 
   static String summarizeTreatment(String text, {String fallback = ''}) {
@@ -1899,12 +1954,10 @@ class _MobileVisitCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: _stateColor.withValues(alpha: 0.12),
+                  color: _stateColor.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -1964,11 +2017,10 @@ class _MobileVisitCard extends StatelessWidget {
                     onPressed: () => onStateTap(action),
                     style: FilledButton.styleFrom(
                       backgroundColor: selected
-                          ? _stateColor.withValues(alpha: 0.2)
+                          ? _stateColor.withOpacity(0.2)
                           : const Color(0xFFF2F4F7),
-                      foregroundColor: selected
-                          ? _stateColor
-                          : const Color(0xFF364152),
+                      foregroundColor:
+                          selected ? _stateColor : const Color(0xFF364152),
                     ),
                     child: Text(_nextLabel(action)),
                   );
@@ -2045,8 +2097,7 @@ class _BodyCell extends StatelessWidget {
         child: Text(
           text,
           softWrap: true,
-          style:
-              style ??
+          style: style ??
               const TextStyle(
                 fontSize: 13.5,
                 height: 1.35,
@@ -2068,12 +2119,14 @@ class _CustomBodyCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
-      child: Padding(padding: const EdgeInsets.only(right: 12), child: child),
+      child: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: child,
+      ),
     );
   }
 }
 
-/// Three-line address block: barrio (semibold) · dirección · referencia (gray).
 class _AddressBlock extends StatelessWidget {
   final String? barrio;
   final String direccion;
@@ -2094,6 +2147,7 @@ class _AddressBlock extends StatelessWidget {
       height: 1.35,
       color: Color(0xFF748096),
     );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -2104,10 +2158,7 @@ class _AddressBlock extends StatelessWidget {
             style: baseStyle.copyWith(fontWeight: FontWeight.w600),
           ),
         Text(
-          _AgendaFormatters.toTitleCase(
-            direccion,
-            fallback: 'Sin dirección',
-          ),
+          _AgendaFormatters.toTitleCase(direccion, fallback: 'Sin dirección'),
           style: baseStyle,
         ),
         if (referencia != null && referencia!.isNotEmpty)

@@ -9,8 +9,9 @@ void main() {
 }
 
 Future<void> _init() async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Eliminado: No permitir autenticación anónima. Solo login real.
+
   runApp(const HextApp());
 }

@@ -227,12 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 8),
-                                  TextButton(
-                                    onPressed: _loading
-                                        ? null
-                                        : () => context.go('/register'),
-                                    child: const Text('Crear cuenta'),
-                                  ),
+                                  // Botón de registro deshabilitado en frontend
                                 ],
                               ),
                             ),

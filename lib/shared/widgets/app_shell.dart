@@ -1,8 +1,60 @@
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hext/core/catalog/pad_labels.dart';
 import 'package:hext/features/auth/auth_notifier.dart';
 import 'package:provider/provider.dart';
+
+// Navegación horizontal para desktop
+class _DesktopNavTabs extends StatelessWidget {
+  final int currentIndex;
+  final void Function(int) onTap;
+  const _DesktopNavTabs({required this.currentIndex, required this.onTap});
+
+  static const _tabs = [
+    {'label': 'Dashboard', 'route': '/dashboard'},
+    {'label': 'Pacientes', 'route': '/cases'},
+    {'label': 'Agenda', 'route': '/schedule'},
+    {'label': 'Pendientes', 'route': '/pending'},
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(_tabs.length, (i) {
+        final bool selected = i == currentIndex;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => onTap(i),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected ? const Color(0xFFE8F3F1) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: selected
+                    ? Border.all(color: const Color(0xFF17726D), width: 1.2)
+                    : Border.all(color: Colors.transparent),
+              ),
+              child: Text(
+                _tabs[i]['label']!,
+                style: TextStyle(
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  color: selected ? const Color(0xFF17726D) : const Color(0xFF4B5563),
+                  fontSize: 15,
+                  letterSpacing: 0.1,
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
 
 enum _DesktopCreateAction { newCase, newVisit, addAuxiliary }
 
@@ -14,6 +66,7 @@ class AppShell extends StatelessWidget {
   int _currentIndex(BuildContext context) {
     final String location = GoRouterState.of(context).uri.toString();
 
+    if (location.startsWith('/pad')) return 1;
     if (location.startsWith('/cases')) return 1;
     if (location.startsWith('/schedule')) return 2;
     if (location.startsWith('/pending')) return 3;
@@ -106,8 +159,19 @@ class AppShell extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_titleForRoute(context)),
         elevation: 0,
+        title: isDesktop
+            ? Row(
+                children: [
+                  const Text('HEXT', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F5C58))),
+                  const SizedBox(width: 18),
+                  _DesktopNavTabs(
+                    currentIndex: currentIndex,
+                    onTap: (i) => _onTap(context, i),
+                  ),
+                ],
+              )
+            : Text(_titleForRoute(context)),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(2),
           child: Container(height: 2, color: const Color(0xFF0F5C58)),
@@ -159,46 +223,51 @@ class AppShell extends StatelessWidget {
         ],
       ),
       body: child,
-      bottomNavigationBar: BottomAppBar(
-        color: const Color(0xFFFFFFFF),
-        surfaceTintColor: Colors.transparent,
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: 74,
-            child: Row(
-              children: <Widget>[
-                _BottomNavItem(
-                  label: 'Dashboard',
-                  icon: Icons.grid_view_outlined,
-                  selected: currentIndex == 0,
-                  onTap: () => _onTap(context, 0),
+      bottomNavigationBar: isDesktop
+          ? null
+          : BottomAppBar(
+              color: const Color(0xFFFFFFFF),
+              surfaceTintColor: Colors.transparent,
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  height: 74,
+                  child: Row(
+                    children: <Widget>[
+                      _BottomNavItem(
+                        label: 'Dashboard',
+                        icon: Icons.grid_view_outlined,
+                        selected: currentIndex == 0,
+                        compact: false,
+                        onTap: () => _onTap(context, 0),
+                      ),
+                      _BottomNavItem(
+                        label: 'Pacientes',
+                        icon: Icons.assignment_ind_outlined,
+                        selected: currentIndex == 1,
+                        compact: false,
+                        onTap: () => _onTap(context, 1),
+                      ),
+                      _CenterCreateButton(onTap: () => context.go('/pad/nuevo')),
+                      _BottomNavItem(
+                        label: 'Agenda',
+                        icon: Icons.calendar_today_outlined,
+                        selected: currentIndex == 2,
+                        compact: false,
+                        onTap: () => _onTap(context, 2),
+                      ),
+                      _BottomNavItem(
+                        label: 'Pendientes',
+                        icon: Icons.pending_actions_outlined,
+                        selected: currentIndex == 3,
+                        compact: false,
+                        onTap: () => _onTap(context, 3),
+                      ),
+                    ],
+                  ),
                 ),
-                _BottomNavItem(
-                  label: 'Pacientes',
-                  icon: Icons.assignment_ind_outlined,
-                  selected: currentIndex == 1,
-                  onTap: () => _onTap(context, 1),
-                ),
-                if (!isDesktop)
-                  _CenterCreateButton(onTap: () => context.go('/pad/nuevo')),
-                _BottomNavItem(
-                  label: 'Agenda',
-                  icon: Icons.calendar_today_outlined,
-                  selected: currentIndex == 2,
-                  onTap: () => _onTap(context, 2),
-                ),
-                _BottomNavItem(
-                  label: 'Pendientes',
-                  icon: Icons.pending_actions_outlined,
-                  selected: currentIndex == 3,
-                  onTap: () => _onTap(context, 3),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -208,12 +277,14 @@ class _BottomNavItem extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.selected,
+    required this.compact,
     required this.onTap,
   });
 
   final String label;
   final IconData icon;
   final bool selected;
+  final bool compact;
   final VoidCallback onTap;
 
   @override
@@ -222,13 +293,16 @@ class _BottomNavItem extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: EdgeInsets.symmetric(vertical: compact ? 2 : 4),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 8 : 9,
+                  vertical: compact ? 3 : 4,
+                ),
                 decoration: BoxDecoration(
                   color: selected
                       ? const Color(0xFF17726D)
@@ -237,15 +311,15 @@ class _BottomNavItem extends StatelessWidget {
                 ),
                 child: Icon(
                   icon,
-                  size: 20,
+                  size: compact ? 18 : 20,
                   color: selected ? Colors.white : const Color(0xFF1F2937),
                 ),
               ),
-              const SizedBox(height: 3),
+              SizedBox(height: compact ? 2 : 3),
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: compact ? 11 : 12,
                   fontWeight: FontWeight.w400,
                   color: selected
                       ? const Color(0xFF17726D)

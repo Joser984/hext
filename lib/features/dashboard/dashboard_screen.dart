@@ -1,7 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hext/core/catalog/pad_labels.dart';
+import 'package:hext/core/repositories/ops_firestore_repo.dart';
+import 'package:hext/core/repositories/caso_paciente_repo.dart';
+import 'package:hext/core/models/caso_paciente.dart';
 import 'package:hext/shared/widgets/module_header.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -12,11 +16,12 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-enum DashboardDateFilter { hoy, semana, mes, rango }
+enum DashboardDateFilter { hoy, semana, mes, anio, rango }
 
 class _DashboardScreenState extends State<DashboardScreen> {
   DashboardDateFilter _selectedFilter = DashboardDateFilter.hoy;
   DateTimeRange? _customRange;
+  final OpsFirestoreRepo _opsRepo = OpsFirestoreRepo();
 
   static const Color _pageBg = Color(0xFFF5F6F8);
   static const Color _cardBg = Colors.white;
@@ -26,19 +31,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   static const Color _mutedColor = Color(0xFF6B7280);
   static const Color _primary = Color(0xFF17726D);
 
-  late final List<_MetricEvent> _origenRecords;
-  late final List<_MetricEvent> _especialidadRecords;
-  late final List<_CandidateItem> _candidatos;
-  late final List<_VisitItem> _visitas;
-  late final List<_SimpleEventItem> _noIngresos;
-  late final List<_RecentActivityItem> _actividad;
-  late final List<_DailyPadStatPoint> _dailyStats;
+  final List<_MetricEvent> _origenRecords = <_MetricEvent>[];
+  final List<_MetricEvent> _especialidadRecords = <_MetricEvent>[];
+  List<_CandidateItem> _candidatos = <_CandidateItem>[];
+  List<_VisitItem> _visitas = <_VisitItem>[];
+  List<_SimpleEventItem> _noIngresos = <_SimpleEventItem>[];
+  List<_RecentActivityItem> _actividad = <_RecentActivityItem>[];
+  List<_DailyPadStatPoint> _dailyStats = <_DailyPadStatPoint>[];
   Timer? _clockTimer;
+  StreamSubscription<List<OpsVisitRecord>>? _visitsSubscription;
+  StreamSubscription<List<OpsPendingRecord>>? _pendingSubscription;
+  // --- Censo ---
+  List<CensoPaciente> _pacientes = <CensoPaciente>[];
+  StreamSubscription<List<CensoPaciente>>? _censoSubscription;
 
   @override
   void initState() {
     super.initState();
-    _seedData();
+    _bindFirestore();
+    _bindCenso();
     _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted) return;
       setState(() {});
@@ -47,197 +58,140 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _visitsSubscription?.cancel();
+    _pendingSubscription?.cancel();
+    _censoSubscription?.cancel();
     _clockTimer?.cancel();
     super.dispose();
   }
+  void _bindCenso() {
+    _censoSubscription = CensoPacienteRepo().watchCenso().listen(
+      (List<CensoPaciente> records) {
+        if (!mounted) return;
+        setState(() {
+          _pacientes = records;
+        });
+      },
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+  }
 
-  void _seedData() {
-    DateTime at(int daysOffset, int hour, int minute) {
-      final DateTime now = DateTime.now();
-      final DateTime base = DateTime(now.year, now.month, now.day);
-      return base.add(Duration(days: daysOffset, hours: hour, minutes: minute));
+  void _bindFirestore() {
+    _visitsSubscription = _opsRepo.watchVisits().listen(
+      (List<OpsVisitRecord> records) {
+        if (!mounted) return;
+        setState(() {
+          _visitas = records.map(_mapVisitFromRecord).toList();
+          _noIngresos = records
+              .where(
+                (OpsVisitRecord r) => r.status.toLowerCase() == 'no_ingreso',
+              )
+              .map(
+                (OpsVisitRecord r) => _SimpleEventItem(
+                  title: r.patientName,
+                  subtitle: 'No ingreso',
+                  trailing: r.doctor,
+                  date: r.date,
+                ),
+              )
+              .toList();
+          _actividad = records
+              .take(12)
+              .map(
+                (OpsVisitRecord r) => _RecentActivityItem(
+                  title: r.status.toLowerCase() == 'realizada'
+                      ? PadUiLabels.activityApprovedAdmission
+                      : PadUiLabels.caseReassessed,
+                  subtitle: r.patientName,
+                  date: r.date,
+                  kind: r.status.toLowerCase() == 'realizada'
+                      ? _ActivityKind.alta
+                      : _ActivityKind.reingreso,
+                ),
+              )
+              .toList();
+          _dailyStats = _buildDailyStats(records);
+        });
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        // Repo already falls back to local fixtures when Firestore is blocked.
+      },
+    );
+
+    _pendingSubscription = _opsRepo.watchPendings().listen(
+      (List<OpsPendingRecord> records) {
+        if (!mounted) return;
+        setState(() {
+          _candidatos = records
+              .where(
+                (OpsPendingRecord r) =>
+                    (r.status ?? 'pendiente').toLowerCase() != 'resuelto',
+              )
+              .take(8)
+              .map(
+                (OpsPendingRecord r) => _CandidateItem(
+                  patientName: r.paciente,
+                  detail: '${r.tipo} · pendiente de gestión',
+                  actionLabel: PadUiLabels.openCaseAction,
+                  date: r.vencimiento,
+                ),
+              )
+              .toList();
+        });
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        // Repo already falls back to local fixtures when Firestore is blocked.
+      },
+    );
+  }
+
+  _VisitItem _mapVisitFromRecord(OpsVisitRecord visit) {
+    return _VisitItem(
+      date: visit.date,
+      patientName: visit.patientName,
+      patientId: visit.patientId,
+      visitId: visit.visitId,
+      pendingId: visit.pendingId,
+      modality: visit.modality,
+      doctor: visit.doctor,
+      auxiliar: visit.auxiliar,
+      location: visit.location,
+      status: visit.status,
+      durationMinutes: visit.durationMinutes,
+    );
+  }
+
+  List<_DailyPadStatPoint> _buildDailyStats(List<OpsVisitRecord> records) {
+    final DateTime now = DateTime.now();
+    final DateTime start = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(const Duration(days: 29));
+    final Map<String, int> visitsByDay = <String, int>{};
+    final Map<String, int> dischargesByDay = <String, int>{};
+
+    for (final OpsVisitRecord record in records) {
+      final DateTime day = DateTime(
+        record.date.year,
+        record.date.month,
+        record.date.day,
+      );
+      if (day.isBefore(start)) continue;
+      final String key = '${day.year}-${day.month}-${day.day}';
+      visitsByDay[key] = (visitsByDay[key] ?? 0) + 1;
+      if (record.status.toLowerCase() == 'realizada') {
+        dischargesByDay[key] = (dischargesByDay[key] ?? 0) + 1;
+      }
     }
 
-    _origenRecords = <_MetricEvent>[
-      _MetricEvent(
-        label: PadUiLabels.captureOriginActiveSearch,
-        date: at(0, 8, 0),
-      ),
-      _MetricEvent(
-        label: PadUiLabels.captureOriginActiveSearch,
-        date: at(0, 10, 0),
-      ),
-      _MetricEvent(
-        label: PadUiLabels.captureOriginFromService,
-        date: at(-1, 9, 0),
-      ),
-      _MetricEvent(
-        label: PadUiLabels.captureOriginFromService,
-        date: at(-3, 11, 0),
-      ),
-      _MetricEvent(
-        label: PadUiLabels.captureOriginActiveSearch,
-        date: at(-8, 8, 30),
-      ),
-      _MetricEvent(
-        label: PadUiLabels.captureOriginFromService,
-        date: at(-12, 14, 0),
-      ),
-      _MetricEvent(
-        label: PadUiLabels.captureOriginActiveSearch,
-        date: at(-20, 15, 0),
-      ),
-      _MetricEvent(
-        label: PadUiLabels.captureOriginFromService,
-        date: at(-26, 16, 0),
-      ),
-    ];
-
-    _especialidadRecords = <_MetricEvent>[
-      _MetricEvent(
-        label: PadUiLabels.specialtyInternalMedicine,
-        date: at(0, 8, 0),
-      ),
-      _MetricEvent(label: PadUiLabels.specialtySurgery, date: at(0, 9, 0)),
-      _MetricEvent(
-        label: PadUiLabels.specialtyOrthopedics,
-        date: at(-1, 10, 0),
-      ),
-      _MetricEvent(label: PadUiLabels.specialtyOthers, date: at(-2, 11, 0)),
-      _MetricEvent(
-        label: PadUiLabels.specialtyInternalMedicine,
-        date: at(-5, 9, 30),
-      ),
-      _MetricEvent(label: PadUiLabels.specialtySurgery, date: at(-10, 10, 45)),
-      _MetricEvent(
-        label: PadUiLabels.specialtyInternalMedicine,
-        date: at(-15, 12, 0),
-      ),
-      _MetricEvent(
-        label: PadUiLabels.specialtyOrthopedics,
-        date: at(-22, 13, 0),
-      ),
-    ];
-
-    _candidatos = <_CandidateItem>[
-      _CandidateItem(
-        patientName: 'Juan Pérez',
-        detail: 'Neumonía · 3 h sin decisión',
-        actionLabel: PadUiLabels.openCaseAction,
-        date: at(0, 9, 15),
-      ),
-      _CandidateItem(
-        patientName: 'Ana Gómez',
-        detail: 'Fractura · 5 h sin decisión',
-        actionLabel: PadUiLabels.openCaseAction,
-        date: at(-2, 14, 30),
-      ),
-      _CandidateItem(
-        patientName: 'Carlos Ruiz',
-        detail: 'IAM · 1 h sin decisión',
-        actionLabel: PadUiLabels.openCaseAction,
-        date: at(-9, 11, 10),
-      ),
-    ];
-
-    _visitas = <_VisitItem>[
-      _VisitItem(
-        date: at(0, 9, 0),
-        patientName: 'Juan Pérez',
-        modality: 'Domicilio',
-        doctor: 'Dr. Díaz',
-        auxiliar: 'Katerine Cabarcas',
-        location: 'Barrio Boston',
-        status: 'Pendiente',
-        durationMinutes: 60,
-      ),
-      _VisitItem(
-        date: at(0, 10, 30),
-        patientName: 'Ana Gómez',
-        modality: 'Institución',
-        doctor: 'Dra. Ríos',
-        auxiliar: 'Luis Castro',
-        location: 'Clínica Cartagena',
-        status: 'Realizada',
-        durationMinutes: 45,
-      ),
-      _VisitItem(
-        date: at(-4, 8, 45),
-        patientName: 'Marta Silva',
-        modality: 'Domicilio',
-        doctor: 'Dr. Díaz',
-        auxiliar: 'Nataly Vergara',
-        location: 'La Campiña',
-        status: 'Pendiente',
-        durationMinutes: 60,
-      ),
-      _VisitItem(
-        date: at(-16, 16, 10),
-        patientName: 'Luis Torres',
-        modality: 'Institución',
-        doctor: 'Dra. Ríos',
-        auxiliar: 'Edgar Mena',
-        location: 'Hospital Universitario',
-        status: 'Realizada',
-        durationMinutes: 45,
-      ),
-    ];
-
-    _noIngresos = <_SimpleEventItem>[
-      _SimpleEventItem(
-        title: 'Luis Torres',
-        subtitle: 'No cumple criterios',
-        trailing: 'Dr. Díaz',
-        date: at(-1, 13, 20),
-      ),
-      _SimpleEventItem(
-        title: 'Marta Silva',
-        subtitle: 'Rechazo familiar',
-        trailing: 'Dra. Ríos',
-        date: at(-8, 9, 10),
-      ),
-    ];
-
-    _actividad = <_RecentActivityItem>[
-      _RecentActivityItem(
-        title: PadUiLabels.activityApprovedAdmission,
-        subtitle: 'Juan Pérez',
-        date: at(0, 8, 45),
-        kind: _ActivityKind.alta,
-      ),
-      _RecentActivityItem(
-        title: PadUiLabels.activityNoAdmission,
-        subtitle: 'Luis Torres',
-        date: at(-2, 8, 30),
-        kind: _ActivityKind.sinIngreso,
-      ),
-      _RecentActivityItem(
-        title: PadUiLabels.caseReassessed,
-        subtitle: 'Ana Gómez',
-        date: at(-3, 8, 10),
-        kind: _ActivityKind.reingreso,
-      ),
-      _RecentActivityItem(
-        title: PadUiLabels.activityApprovedAdmission,
-        subtitle: 'Carlos Ruiz',
-        date: at(-14, 11, 0),
-        kind: _ActivityKind.alta,
-      ),
-    ];
-
-    _dailyStats = List<_DailyPadStatPoint>.generate(30, (int i) {
-      final DateTime now = DateTime.now();
-      final DateTime date = DateTime(
-        now.year,
-        now.month,
-        now.day,
-      ).subtract(Duration(days: 29 - i));
-      final int amanecen = 12 + (i % 7) + (i % 3);
-      final int egresan = 1 + (i % 4);
+    return List<_DailyPadStatPoint>.generate(30, (int i) {
+      final DateTime day = start.add(Duration(days: i));
+      final String key = '${day.year}-${day.month}-${day.day}';
       return _DailyPadStatPoint(
-        date: date,
-        amanecen: amanecen,
-        egresan: egresan,
+        date: day,
+        amanecen: visitsByDay[key] ?? 0,
+        egresan: dischargesByDay[key] ?? 0,
       );
     });
   }
@@ -245,16 +199,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final _DateBounds bounds = _resolveDateBounds();
+    debugPrint('Rango dashboard: \\u001b[32m${bounds.start} -> ${bounds.end}\\u001b[0m');
+    debugPrint('Total _visitas: ${_visitas.length}');
+    for (final v in _visitas) {
+      debugPrint('VISITA: paciente=${v.patientName} fecha=${v.date} status=${v.status}');
+    }
+    debugPrint('Total _candidatos: ${_candidatos.length}');
+    debugPrint('Total _noIngresos: ${_noIngresos.length}');
+    debugPrint('Total _actividad: ${_actividad.length}');
+    debugPrint('Total _dailyStats: ${_dailyStats.length}');
+
     final List<_CandidateItem> candidatos = _filterByRange<_CandidateItem>(
       _candidatos,
       bounds,
       (_CandidateItem item) => item.date,
     );
+    debugPrint('Candidatos tras filtro: ${candidatos.length}');
     final List<_VisitItem> visitas = _filterByRange<_VisitItem>(
       _visitas,
       bounds,
       (_VisitItem item) => item.date,
     );
+    debugPrint('Visitas tras filtro: ${visitas.length}');
     final DateTime now = DateTime.now();
     final _NowSnapshot nowSnapshot = _buildNowSnapshot(
       source: _visitas,
@@ -269,18 +235,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       bounds,
       (_SimpleEventItem item) => item.date,
     );
+    debugPrint('NoIngresos tras filtro: ${noIngresos.length}');
     final List<_RecentActivityItem> actividad =
         _filterByRange<_RecentActivityItem>(
           _actividad,
           bounds,
           (_RecentActivityItem item) => item.date,
         );
+    debugPrint('Actividad tras filtro: ${actividad.length}');
     final List<_DailyPadStatPoint> dailyStats =
         _filterByRange<_DailyPadStatPoint>(
           _dailyStats,
           bounds,
           (_DailyPadStatPoint item) => item.date,
         );
+    debugPrint('DailyStats tras filtro: ${dailyStats.length}');
 
     final List<_SmallMetric> origenes = _aggregateMetrics(
       labels: <String>[
@@ -302,12 +271,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     final List<_KpiItem> kpis = _buildKpis(
       bounds: bounds,
+      pacientes: _pacientes,
       candidatos: candidatos,
       visitas: visitas,
       noIngresos: noIngresos,
-      actividad: actividad,
-      dailyStats: dailyStats,
     );
+    debugPrint('KPIs: ${kpis.map((k) => '${k.label}: ${k.value}').join(' | ')}');
+    final bool secondaryMetricsAllZero =
+        _allMetricsZero(origenes) && _allMetricsZero(especialidades);
+    final int nonZeroDailyPoints = dailyStats
+        .where((p) => (p.amanecen + p.egresan) > 0)
+        .length;
+    final bool lowDensityMode =
+        nowSnapshot.items.isEmpty &&
+        proximas.isEmpty &&
+        candidatos.isEmpty &&
+        noIngresos.isEmpty &&
+        actividad.length <= 1 &&
+        secondaryMetricsAllZero &&
+        nonZeroDailyPoints <= 1;
 
     return Container(
       color: _pageBg,
@@ -327,24 +309,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 left: _buildVisitsCard(proximas),
                 right: _buildActivityCard(actividad),
               ),
-              const SizedBox(height: 24),
-              _ResponsiveTwoColumn(
-                left: _buildSmallMetricsCard(
-                  title: PadUiLabels.captureOriginSectionTitle,
-                  metrics: origenes,
+              if (!lowDensityMode) ...<Widget>[
+                const SizedBox(height: 24),
+                _ResponsiveTwoColumn(
+                  left: _buildSmallMetricsCard(
+                    title: PadUiLabels.captureOriginSectionTitle,
+                    metrics: origenes,
+                  ),
+                  right: _buildSmallMetricsCard(
+                    title: PadUiLabels.specialtiesSectionTitle,
+                    metrics: especialidades,
+                  ),
                 ),
-                right: _buildSmallMetricsCard(
-                  title: PadUiLabels.specialtiesSectionTitle,
-                  metrics: especialidades,
+                const SizedBox(height: 24),
+                _ResponsiveTwoColumn(
+                  left: _buildCandidatesCard(candidatos),
+                  right: _buildNoIngresosCard(noIngresos),
                 ),
-              ),
+              ] else ...<Widget>[
+                const SizedBox(height: 20),
+                _SectionCard(
+                  title: 'Vista operativa compacta',
+                  subtitle:
+                      'Actividad baja: se prioriza la capa operativa superior.',
+                  child: _buildActionableEmptyState(
+                    title:
+                        'Sin señales operativas secundarias relevantes para este corte.',
+                    ctaLabel: 'Revisar agenda completa',
+                    onTap: () => context.go('/schedule'),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
-              _ResponsiveTwoColumn(
-                left: _buildCandidatesCard(candidatos),
-                right: _buildNoIngresosCard(noIngresos),
+              _buildDailyBehaviorCard(
+                dailyStats,
+                compactMode: lowDensityMode || nonZeroDailyPoints <= 2,
               ),
-              const SizedBox(height: 24),
-              _buildDailyBehaviorCard(dailyStats),
             ],
           ),
         ),
@@ -352,30 +352,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  bool _allMetricsZero(List<_SmallMetric> metrics) {
+    for (final _SmallMetric metric in metrics) {
+      final int? value = int.tryParse(metric.value.trim());
+      if ((value ?? 0) > 0) return false;
+    }
+    return true;
+  }
+
   Widget _buildTopHeader(BuildContext context, _DateBounds bounds) {
     return _SurfaceCard(
       padding: const EdgeInsets.all(18),
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        runSpacing: 16,
-        spacing: 16,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: <Widget>[
-          SizedBox(
-            width: 420,
-            child: ModuleHeader(
-              title: PadUiLabels.dashboardTitle,
-              subtitle:
-                  '${PadUiLabels.dashboardSubtitle} · ${_rangeSummaryLabel(bounds)}',
-            ),
-          ),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: <Widget>[_buildDateFilters()],
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final bool desktop = constraints.maxWidth >= 980;
+          if (desktop) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Expanded(
+                  child: ModuleHeader(
+                    title: PadUiLabels.dashboardTitle,
+                    subtitle:
+                        '${PadUiLabels.dashboardSubtitle} · ${_rangeSummaryLabel(bounds)}',
+                  ),
+                ),
+                const SizedBox(width: 16),
+                _buildDateFilters(),
+              ],
+            );
+          }
+          return _buildDateFilters();
+        },
       ),
     );
   }
@@ -477,6 +485,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return 'Mes';
       case DashboardDateFilter.rango:
         return 'Rango';
+      case DashboardDateFilter.anio:
+        return 'Año';
     }
   }
 
@@ -513,6 +523,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _selectedFilter = DashboardDateFilter.rango;
         _customRange = _normalizedDayRange(result.range!);
+      });
+      return;
+    }
+    if (filter == DashboardDateFilter.anio) {
+      final DateTime now = DateTime.now();
+      final DateTime startOfYear = DateTime(now.year, 1, 1);
+      final DateTime endOfNow =
+          DateTime(now.year, now.month, now.day, 23, 59, 59);
+      setState(() {
+        _selectedFilter = DashboardDateFilter.anio;
+        _customRange = DateTimeRange(start: startOfYear, end: endOfNow);
       });
       return;
     }
@@ -591,6 +612,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           59,
         );
         return _DateBounds(start: monthStart, end: monthEnd);
+      case DashboardDateFilter.anio:
+        final DateTime startOfYear = DateTime(now.year, 1, 1);
+        final DateTime endOfNow =
+            DateTime(now.year, now.month, now.day, 23, 59, 59);
+        return _DateBounds(start: startOfYear, end: endOfNow);
       case DashboardDateFilter.rango:
         if (_customRange != null) {
           return _DateBounds(
@@ -663,7 +689,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }) {
     final List<_VisitItem> items = source.where((_VisitItem item) {
       return item.status.toLowerCase() != 'realizada' && item.date.isAfter(now);
-    }).toList()..sort((_VisitItem a, _VisitItem b) => a.date.compareTo(b.date));
+    }).toList()
+      ..sort((_VisitItem a, _VisitItem b) => a.date.compareTo(b.date));
 
     return items.take(5).toList();
   }
@@ -683,54 +710,104 @@ class _DashboardScreenState extends State<DashboardScreen> {
       (_MetricEvent item) => item.date,
     );
     return labels.map((String label) {
-      final int count = filtered
-          .where((_MetricEvent e) => e.label == label)
-          .length;
+      final int count =
+          filtered.where((_MetricEvent e) => e.label == label).length;
       return _SmallMetric(label: label, value: '$count');
     }).toList();
   }
 
+  // Catálogo de causas válidas de reingreso
+  static const List<String> causasReingresoValidas = <String>[
+    'COMORBILIDADES DESCOMPENSADAS',
+    'FACTORES SOCIALES O DE SOPORTE NO FAVORABLES',
+    'NECESIDAD DE ESCALAMIENTO DEL NIVEL DE ATENCIÓN POR EVOLUCIÓN CLÍNICA',
+    'PROGRESIÓN DE LA PATOLOGÍA DE BASE',
+    'REQUERIMIENTO DE ATENCIÓN INTRAHOSPITALARIA',
+    'REACCION ADVERSA A MEDICAMENTO',
+    'NO AVAL ADMINISTRATIVO',
+  ];
+
   List<_KpiItem> _buildKpis({
     required _DateBounds bounds,
+    required List<CensoPaciente> pacientes,
     required List<_CandidateItem> candidatos,
     required List<_VisitItem> visitas,
     required List<_SimpleEventItem> noIngresos,
-    required List<_RecentActivityItem> actividad,
-    required List<_DailyPadStatPoint> dailyStats,
   }) {
-    final int days = bounds.end.difference(bounds.start).inDays + 1;
-    final int sumAmanecen = dailyStats.fold<int>(
-      0,
-      (int acc, _DailyPadStatPoint item) => acc + item.amanecen,
-    );
-    final double avgStay = days == 0 ? 0 : (sumAmanecen / days) / 2;
-    final int altas = actividad
-        .where((_RecentActivityItem a) => a.kind == _ActivityKind.alta)
-        .length;
-    final int reingresos = actividad
-        .where((_RecentActivityItem a) => a.kind == _ActivityKind.reingreso)
-        .length;
+    final List<CensoPaciente> enRango = pacientes.where((p) {
+      final DateTime? ingreso = p.fechaIngreso;
+      final DateTime? egreso = p.fechaEgreso;
+      if (ingreso == null) return false;
+      return !ingreso.isAfter(bounds.end) && (egreso == null || !egreso.isBefore(bounds.start));
+    }).toList();
+
+    final int pacientesActuales = enRango.where((p) {
+      return p.fechaEgreso == null || p.fechaEgreso!.isAfter(bounds.end);
+    }).length;
+
+    String? getCausaReingresoOtro(dynamic p) {
+      try {
+        // Si el modelo se amplía, agregar aquí el acceso seguro
+        if (p != null && p.toJson != null) {
+          final map = p.toJson();
+          if (map is Map && map.containsKey('causaReingresoOtro')) {
+            final val = map['causaReingresoOtro'];
+            if (val is String) return val.trim();
+          }
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    final int reingresos = enRango.where((p) {
+      final String? tipoEgreso = p.tipoEgreso?.trim();
+      final String? causaReingreso = p.causaReingreso?.trim();
+      final String? causaReingresoOtro = getCausaReingresoOtro(p);
+      final DateTime? egreso = p.fechaEgreso;
+      final bool esReingresoValido =
+          tipoEgreso == 'Retorno intrahospitalario' &&
+          causaReingreso != null &&
+          causaReingreso.isNotEmpty &&
+          (causaReingreso != 'Otro' ||
+              (causaReingresoOtro != null && causaReingresoOtro.isNotEmpty)) &&
+          egreso != null && !egreso.isBefore(bounds.start) && !egreso.isAfter(bounds.end);
+      return esReingresoValido;
+    }).length;
+
+    final int altas = enRango.where((p) {
+      final DateTime? egreso = p.fechaEgreso;
+      final String? tipoEgreso = p.tipoEgreso?.trim();
+      final String? causaReingreso = p.causaReingreso?.trim();
+      final String? causaReingresoOtro = getCausaReingresoOtro(p);
+      final bool esReingresoValido =
+          tipoEgreso == 'Retorno intrahospitalario' &&
+          causaReingreso != null &&
+          causaReingreso.isNotEmpty &&
+          (causaReingreso != 'Otro' ||
+              (causaReingresoOtro != null && causaReingresoOtro.isNotEmpty)) &&
+          egreso != null && !egreso.isBefore(bounds.start) && !egreso.isAfter(bounds.end);
+      return egreso != null && !egreso.isBefore(bounds.start) && !egreso.isAfter(bounds.end) && !esReingresoValido;
+    }).length;
+
+    final List<int> estancias = enRango
+        .where((p) {
+          return p.fechaIngreso != null &&
+              p.fechaEgreso != null &&
+              !p.fechaEgreso!.isBefore(bounds.start) &&
+              !p.fechaEgreso!.isAfter(bounds.end);
+        })
+        .map((p) => p.fechaEgreso!.difference(p.fechaIngreso!).inDays + 1)
+        .toList();
+
+    final double promedioEstancia = estancias.isEmpty
+        ? 0
+        : estancias.reduce((a, b) => a + b) / estancias.length;
 
     return <_KpiItem>[
       _KpiItem(
         label: PadUiLabels.kpiCurrentPatients,
-        value: '${sumAmanecen == 0 ? 0 : (sumAmanecen / days).round()}',
+        value: '$pacientesActuales',
         valueColor: const Color(0xFF1E88E5),
-      ),
-      _KpiItem(
-        label: PadUiLabels.casesPendingDefinition,
-        value: '${candidatos.length}',
-        valueColor: const Color(0xFFE53935),
-      ),
-      _KpiItem(
-        label: PadUiLabels.kpiTodayVisits,
-        value: '${visitas.length}',
-        valueColor: const Color(0xFF00897B),
-      ),
-      _KpiItem(
-        label: PadUiLabels.kpiNoAdmissions,
-        value: '${noIngresos.length}',
-        valueColor: const Color(0xFFFB8C00),
       ),
       _KpiItem(
         label: PadUiLabels.kpiDischarges,
@@ -744,8 +821,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       _KpiItem(
         label: PadUiLabels.kpiAverageStayDays,
-        value: avgStay.toStringAsFixed(1),
+        value: promedioEstancia.toStringAsFixed(1),
         valueColor: const Color(0xFF3949AB),
+      ),
+      _KpiItem(
+        label: PadUiLabels.kpiNoAdmissions,
+        value: '${noIngresos.length}',
+        valueColor: const Color(0xFFFB8C00),
+      ),
+      _KpiItem(
+        label: PadUiLabels.casesPendingDefinition,
+        value: '${candidatos.length}',
+        valueColor: const Color(0xFFE53935),
+      ),
+      _KpiItem(
+        label: PadUiLabels.kpiTodayVisits,
+        value: '${visitas.length}',
+        valueColor: const Color(0xFF00897B),
       ),
     ];
   }
@@ -786,8 +878,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     const List<String> letters = <String>['L', 'M', 'M', 'J', 'V', 'S', 'D'];
     return letters[date.weekday - 1];
   }
-
-  Widget _buildKpiSection(List<_KpiItem> kpis) {
+    Widget _buildKpiSection(List<_KpiItem> kpis) {
+    if (kpis.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _borderColor),
+        ),
+        child: const Center(
+          child: Text(
+            'No hay indicadores para mostrar (KPIs vacíos)',
+            style: TextStyle(color: Colors.red, fontSize: 16),
+          ),
+        ),
+      );
+    }
     return Wrap(
       spacing: 14,
       runSpacing: 14,
@@ -873,6 +980,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildCandidatesCard(List<_CandidateItem> candidatos) {
+    if (candidatos.isEmpty) {
+      return _SectionCard(
+        title: PadUiLabels.casesPendingDefinition,
+        child: _buildActionableEmptyState(
+          title: 'No hay casos por definir para el periodo seleccionado.',
+          ctaLabel: 'Crear nuevo caso',
+          onTap: () => context.go('/pad/nuevo'),
+        ),
+      );
+    }
+
     return _SectionCard(
       title: PadUiLabels.casesPendingDefinition,
       child: Column(
@@ -1012,7 +1130,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          _StatusPill(label: _nowStateLabel(item.state)),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: <Widget>[
+                              _StatusPill(label: _nowStateLabel(item.state)),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                height: 34,
+                                child: OutlinedButton.icon(
+                                  onPressed: () =>
+                                      _openVisitInAgenda(item.visit),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: _primary,
+                                    side: const BorderSide(color: _borderColor),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.open_in_new_rounded,
+                                    size: 15,
+                                  ),
+                                  label: const Text(
+                                    'Abrir visita',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -1025,15 +1174,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildNowEmptyState(_VisitItem? nextVisit) {
     if (nextVisit == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 10),
-        child: Text(
-          'Sin visitas en curso',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: _mutedColor,
-          ),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: const <Widget>[
+                Icon(
+                  Icons.timelapse_outlined,
+                  size: 18,
+                  color: Color(0xFF5E6A7D),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'No hay visitas en curso',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: _mutedColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Cuando entren visitas activas aparecerán aquí para seguimiento operativo inmediato.',
+              style: TextStyle(fontSize: 13.5, color: _textColor),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 34,
+              child: OutlinedButton.icon(
+                onPressed: () => context.go('/schedule'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _primary,
+                  side: const BorderSide(color: _borderColor),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                icon: const Icon(Icons.calendar_today_outlined, size: 15),
+                label: const Text('Ver agenda de hoy'),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -1044,10 +1229,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           const Text(
-            'Sin visitas en curso',
+            'No hay visitas en curso',
             style: TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
               color: _mutedColor,
             ),
           ),
@@ -1056,9 +1241,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
             'Siguiente visita: ${_formatTime(nextVisit.date)} · ${nextVisit.patientName} · ${nextVisit.modality} · ${nextVisit.auxiliar}',
             style: const TextStyle(fontSize: 14, color: _textColor),
           ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 36,
+            child: OutlinedButton.icon(
+              onPressed: () => _openVisitInAgenda(nextVisit),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _primary,
+                side: const BorderSide(color: _borderColor),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              icon: const Icon(Icons.route_rounded, size: 16),
+              label: const Text('Ver ruta/agenda'),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  void _openVisitInAgenda(_VisitItem visit) {
+    final String? itemId =
+        (visit.visitId != null && visit.visitId!.trim().isNotEmpty)
+            ? visit.visitId
+            : visit.pendingId;
+    final String route = Uri(
+      path: '/schedule',
+      queryParameters: <String, String>{
+        'source': 'dashboard',
+        if (itemId != null && itemId.trim().isNotEmpty) 'itemId': itemId,
+        if (visit.visitId != null && visit.visitId!.trim().isNotEmpty)
+          'visitId': visit.visitId!,
+        if (visit.patientId != null && visit.patientId!.trim().isNotEmpty)
+          'patientId': visit.patientId!,
+        if (visit.pendingId != null && visit.pendingId!.trim().isNotEmpty)
+          'pendingId': visit.pendingId!,
+      },
+    ).toString();
+    context.go(route);
   }
 
   String _nowStateLabel(_NowState state) {
@@ -1093,16 +1316,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return _SectionCard(
       title: PadUiLabels.upcomingMedicalAssessments,
       child: visitas.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Text(
-                'No hay próximas valoraciones en el periodo seleccionado.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: _mutedColor,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+          ? _buildActionableEmptyState(
+              title: 'No hay próximas valoraciones para hoy.',
+              ctaLabel: 'Programar visita',
+              onTap: () => context.go('/schedule'),
             )
           : Column(
               children: visitas.asMap().entries.map((entry) {
@@ -1186,6 +1403,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildNoIngresosCard(List<_SimpleEventItem> noIngresos) {
+    if (noIngresos.isEmpty) {
+      return _SectionCard(
+        title: PadUiLabels.recentNoAdmissions,
+        child: _buildActionableEmptyState(
+          title: 'No se registran no ingresos recientes.',
+          ctaLabel: 'Revisar pacientes',
+          onTap: () => context.go('/cases'),
+        ),
+      );
+    }
+
     return _SectionCard(
       title: PadUiLabels.recentNoAdmissions,
       child: Column(
@@ -1244,6 +1472,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildActivityCard(List<_RecentActivityItem> actividad) {
+    if (actividad.isEmpty) {
+      return _SectionCard(
+        title: PadUiLabels.recentActivity,
+        child: _buildActionableEmptyState(
+          title: 'Aún no se registra actividad reciente.',
+          ctaLabel: 'Ir a pendientes',
+          onTap: () => context.go('/pending'),
+        ),
+      );
+    }
+
+    final bool compact = actividad.length <= 1;
+
     return _SectionCard(
       title: PadUiLabels.recentActivity,
       child: Column(
@@ -1254,7 +1495,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: <Widget>[
               if (index > 0) const Divider(height: 1, color: _borderColor),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: EdgeInsets.symmetric(vertical: compact ? 8 : 14),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
@@ -1270,8 +1511,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         children: <Widget>[
                           Text(
                             item.title,
-                            style: const TextStyle(
-                              fontSize: 18,
+                            style: TextStyle(
+                              fontSize: compact ? 16 : 18,
                               fontWeight: FontWeight.w500,
                               color: _titleColor,
                             ),
@@ -1279,8 +1520,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(height: 4),
                           Text(
                             item.subtitle,
-                            style: const TextStyle(
-                              fontSize: 14,
+                            style: TextStyle(
+                              fontSize: compact ? 13 : 14,
                               color: _mutedColor,
                             ),
                           ),
@@ -1302,8 +1543,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildDailyBehaviorCard(List<_DailyPadStatPoint> dailyStats) {
-    final int maxValue = dailyStats
+  Widget _buildDailyBehaviorCard(
+    List<_DailyPadStatPoint> dailyStats, {
+    bool compactMode = false,
+  }) {
+    final List<_DailyPadStatPoint> nonZeroPoints = dailyStats
+        .where((p) => (p.amanecen + p.egresan) > 0)
+        .toList();
+
+    if (nonZeroPoints.isEmpty) {
+      return _SectionCard(
+        title: PadUiLabels.dailyPadBehavior,
+        subtitle: PadUiLabels.dailyPadBehaviorSubtitle,
+        child: _buildActionableEmptyState(
+          title: 'No hay datos diarios para graficar en este rango.',
+          ctaLabel: 'Ver mes actual',
+          onTap: () => _onDateFilterSelected(DashboardDateFilter.mes),
+        ),
+      );
+    }
+
+    final bool sparse = compactMode || nonZeroPoints.length <= 3;
+    final List<_DailyPadStatPoint> chartPoints =
+        sparse ? nonZeroPoints : dailyStats;
+    final double chartHeight = sparse ? 130 : 220;
+
+    final int maxValue = chartPoints
         .map((e) => e.amanecen > e.egresan ? e.amanecen : e.egresan)
         .fold<int>(0, (prev, next) => next > prev ? next : prev);
 
@@ -1327,54 +1592,151 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          SizedBox(height: sparse ? 12 : 18),
           SizedBox(
-            height: 220,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: dailyStats.map((item) {
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: <Widget>[
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.bottomCenter,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: <Widget>[
-                                _Bar(
-                                  value: item.amanecen,
-                                  max: maxValue,
-                                  color: const Color(0xFF17726D),
+            height: chartHeight,
+            child: sparse
+                ? Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Wrap(
+                      spacing: 20,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: chartPoints.map((item) {
+                        return SizedBox(
+                          width: 52,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: <Widget>[
+                                  _Bar(
+                                    value: item.amanecen,
+                                    max: maxValue,
+                                    color: const Color(0xFF17726D),
+                                    compact: true,
+                                    maxPixels: 64,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  _Bar(
+                                    value: item.egresan,
+                                    max: maxValue,
+                                    color: const Color(0xFFB0BEC5),
+                                    compact: true,
+                                    maxPixels: 64,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                _weekdayLetter(item.date),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _mutedColor,
                                 ),
-                                const SizedBox(width: 6),
-                                _Bar(
-                                  value: item.egresan,
-                                  max: maxValue,
-                                  color: const Color(0xFFB0BEC5),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          _weekdayLetter(item.date),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: _mutedColor,
-                          ),
-                        ),
-                      ],
+                        );
+                      }).toList(),
                     ),
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: chartPoints.map((item) {
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: <Widget>[
+                              Expanded(
+                                child: Align(
+                                  alignment: Alignment.bottomCenter,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: <Widget>[
+                                      _Bar(
+                                        value: item.amanecen,
+                                        max: maxValue,
+                                        color: const Color(0xFF17726D),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      _Bar(
+                                        value: item.egresan,
+                                        max: maxValue,
+                                        color: const Color(0xFFB0BEC5),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                _weekdayLetter(item.date),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: _mutedColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                );
-              }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionableEmptyState({
+    required String title,
+    required String ctaLabel,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Icon(Icons.info_outline, size: 18, color: Color(0xFF6B7280)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: _mutedColor,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 34,
+                  child: OutlinedButton.icon(
+                    onPressed: onTap,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primary,
+                      side: const BorderSide(color: _borderColor),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                    label: Text(ctaLabel),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1607,27 +1969,37 @@ class _Bar extends StatelessWidget {
   final int value;
   final int max;
   final Color color;
+  final bool compact;
+  final double maxPixels;
 
-  const _Bar({required this.value, required this.max, required this.color});
+  const _Bar({
+    required this.value,
+    required this.max,
+    required this.color,
+    this.compact = false,
+    this.maxPixels = 150,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final double height = max == 0 ? 0 : (value / max) * 150;
+    final double height = max == 0 ? 0 : (value / max) * maxPixels;
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.end,
       children: <Widget>[
-        Text(
-          '$value',
-          style: const TextStyle(
-            fontSize: 12,
-            color: _DashboardScreenState._mutedColor,
+        if (!compact)
+          Text(
+            '$value',
+            style: const TextStyle(
+              fontSize: 12,
+              color: _DashboardScreenState._mutedColor,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
+        SizedBox(height: compact ? 0 : 8),
         Container(
-          width: 20,
-          height: height.clamp(8, 150),
+          width: compact ? 14 : 20,
+          height: height.clamp(compact ? 4 : 8, maxPixels),
           decoration: BoxDecoration(
             color: color,
             borderRadius: BorderRadius.circular(8),
@@ -1674,6 +2046,9 @@ class _CandidateItem {
 class _VisitItem {
   final DateTime date;
   final String patientName;
+  final String? patientId;
+  final String? visitId;
+  final String? pendingId;
   final String modality;
   final String doctor;
   final String auxiliar;
@@ -1684,6 +2059,9 @@ class _VisitItem {
   const _VisitItem({
     required this.date,
     required this.patientName,
+    this.patientId,
+    this.visitId,
+    this.pendingId,
     required this.modality,
     required this.doctor,
     required this.auxiliar,
@@ -2094,6 +2472,6 @@ class _CompactRangeDialogState extends State<_CompactRangeDialog> {
   }
 }
 
-enum _ActivityKind { alta, reingreso, sinIngreso }
+enum _ActivityKind { alta, reingreso }
 
 enum _NowState { enCurso, porIniciar, retrasada }

@@ -1,9 +1,9 @@
 import 'package:go_router/go_router.dart';
+import 'package:flutter/widgets.dart';
 import 'package:hext/core/models/app_user.dart';
 import 'package:hext/features/agenda/personal_module_page.dart';
 import 'package:hext/features/auth/auth_notifier.dart';
 import 'package:hext/features/auth/login_screen.dart';
-import 'package:hext/features/auth/register_screen.dart';
 import 'package:hext/features/cases/cases_screen.dart';
 import 'package:hext/features/dashboard/dashboard_screen.dart';
 import 'package:hext/features/pad/candidatos_screen.dart';
@@ -15,22 +15,30 @@ import 'package:hext/shared/widgets/app_shell.dart';
 
 GoRouter buildRouter(AuthNotifier authNotifier) {
   return GoRouter(
-    initialLocation: '/dashboard',
-    redirect: (context, state) {
+    initialLocation: '/login',
+    redirect: (BuildContext context, GoRouterState state) {
       final bool loading = authNotifier.status == AuthStatus.loading;
       final bool authenticated = authNotifier.isAuthenticated;
-      final bool goingToLogin = state.matchedLocation == '/login';
-      final bool goingToRegister = state.matchedLocation == '/register';
+
+      final String location = state.matchedLocation;
+      final bool goingToLogin = location == '/login';
+      final bool goingToRegister = location == '/register';
 
       if (loading) return null;
-      if (goingToLogin || goingToRegister) {
+
+      // Sin sesión: solo puede estar en login o register
+      if (!authenticated && !goingToLogin && !goingToRegister) {
+        return '/login';
+      }
+
+      // Con sesión: login/register ya no aplican
+      if (authenticated && (goingToLogin || goingToRegister)) {
         return '/dashboard';
       }
 
-      // Guards por rol (solo cuando hay sesión activa y perfil cargado)
+      // Guards por rol, solo con sesión activa
       final AppUser? user = authNotifier.appUser;
       if (authenticated && user != null) {
-        final String location = state.matchedLocation;
         if (location.startsWith('/schedule') && !user.canAccessSchedule) {
           return '/dashboard';
         }
@@ -44,10 +52,7 @@ GoRouter buildRouter(AuthNotifier authNotifier) {
     refreshListenable: authNotifier,
     routes: <RouteBase>[
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
-      GoRoute(
-        path: '/register',
-        builder: (context, state) => const RegisterScreen(),
-      ),
+      // Registro deshabilitado en frontend por ADMIN_ONLY_OPERATION
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: <RouteBase>[
@@ -62,8 +67,15 @@ GoRouter buildRouter(AuthNotifier authNotifier) {
           ),
           GoRoute(
             path: '/schedule',
-            builder: (context, state) =>
-                ScheduleScreen(initialSearch: state.uri.queryParameters['q']),
+            builder: (context, state) => ScheduleScreen(
+              initialSearch: state.uri.queryParameters['q'],
+              initialVisitId:
+                  state.uri.queryParameters['visitId'] ??
+                  state.uri.queryParameters['itemId'],
+              initialPatientId: state.uri.queryParameters['patientId'],
+              initialPendingId: state.uri.queryParameters['pendingId'],
+              sourceContext: state.uri.queryParameters['source'],
+            ),
           ),
           GoRoute(
             path: '/schedule/horarios',

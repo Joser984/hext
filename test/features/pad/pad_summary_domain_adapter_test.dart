@@ -7,6 +7,7 @@ void main() {
     test('uses only legacy motivos when no activos are provided', () {
       final PadCaseRecord record = PadCaseRecord(
         motivos: const <String>[' Oxigeno ', '  Caidas  '],
+        barrio: '',
       );
 
       final PadCaseData data = PadSummaryDomainAdapter.toPadCaseData(record);
@@ -18,6 +19,7 @@ void main() {
       final PadCaseRecord record = PadCaseRecord(
         motivoIngresoPrincipal: '   ',
         motivosIngresoActivos: const <String>['Dolor', 'Disnea'],
+        barrio: '',
       );
 
       final vm = mapPadSummary(PadSummaryDomainAdapter.toPadCaseData(record));
@@ -29,6 +31,7 @@ void main() {
     test('falls back to observaciones when structured detail is missing', () {
       final PadCaseRecord record = PadCaseRecord(
         observaciones: 'Paciente con soporte familiar adecuado.',
+        barrio: '',
       );
 
       final vm = mapPadSummary(PadSummaryDomainAdapter.toPadCaseData(record));
@@ -39,6 +42,7 @@ void main() {
     test('keeps unclassified status when source value is not mapped', () {
       final PadCaseRecord record = PadCaseRecord(
         estadoPad: 'Pendiente comite externo',
+        barrio: '',
       );
 
       final vm = mapPadSummary(PadSummaryDomainAdapter.toPadCaseData(record));
@@ -50,6 +54,7 @@ void main() {
       final PadCaseRecord record = PadCaseRecord(
         motivosIngresoActivos: const <String>['Disnea', 'Oxigeno'],
         motivos: const <String>[' oxigeno ', 'Caidas'],
+        barrio: '',
       );
 
       final PadCaseData data = PadSummaryDomainAdapter.toPadCaseData(record);
@@ -66,6 +71,7 @@ void main() {
         'motivoPrincipal': 'Control clinico',
         'motivosActivos': <String>['Disnea', 'Oxigeno'],
         'motivos': <String>['oxigeno', 'Caidas'],
+        'barrio': '',
       };
 
       final PadCaseRecord record = PadCaseRecord.fromMap(raw);
@@ -83,6 +89,7 @@ void main() {
       final PadCaseRecord record = PadCaseRecord(
         motivosIngresoActivos: const <String>['  Oxígeno  ', 'disnea'],
         motivos: const <String>['oxígeno', '  Disnea  ', 'Caídas'],
+        barrio: '',
       );
 
       final PadCaseData data = PadSummaryDomainAdapter.toPadCaseData(record);

@@ -2,6 +2,7 @@ import 'package:hext/features/pad/summary/pad_summary_compact_vm.dart';
 
 class PadCaseData {
   const PadCaseData({
+    required this.barrio,
     this.motivoPrincipal,
     this.motivoPrincipalLabel,
     this.motivosActivos,
@@ -15,6 +16,7 @@ class PadCaseData {
     this.resolucionPad,
   });
 
+  final String barrio;
   final String? motivoPrincipal;
   final String? motivoPrincipalLabel;
   final List<String>? motivosActivos;
@@ -32,7 +34,7 @@ class PadCaseData {
 
 PadSummaryCompactVm mapPadSummary(PadCaseData caseData) {
   final List<String> activeReasons = normalizeStringList(
-    caseData.motivosActivos ?? caseData.motivos ?? const <String>[],
+    caseData.motivosActivos ?? caseData.motivos ?? const <String>[] ,
   );
 
   final String explicitPrincipal = firstNonEmpty(
@@ -66,6 +68,7 @@ PadSummaryCompactVm mapPadSummary(PadCaseData caseData) {
   );
 
   return PadSummaryCompactVm(
+    barrio: caseData.barrio,
     principalLabel: principal,
     principalInferred: inferred,
     activeReasonLabels: activeReasons,
@@ -129,8 +132,6 @@ String resolveGeneralStatus({
   final String normalized = _normalizeToken(source);
 
   const Set<String> active = <String>{
-    'activos en pad',
-    'activo',
     'extension hospitalaria',
     'reingreso desde extension hospitalaria',
     'en curso',

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hext/core/repositories/ops_firestore_repo.dart';
 import 'package:hext/shared/widgets/app_chip.dart';
 import 'package:hext/shared/widgets/filter_shell.dart';
 import 'package:hext/shared/widgets/light_dropdown.dart';
@@ -15,59 +18,32 @@ class PendingScreen extends StatefulWidget {
 
 class _PendingScreenState extends State<PendingScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final OpsFirestoreRepo _opsRepo = OpsFirestoreRepo();
+  StreamSubscription<List<OpsPendingRecord>>? _pendingSubscription;
 
   String _tipoFiltro = 'Todos';
   String _estadoFiltro = 'Todos';
-  late final List<_PendingItemVm> _items;
-
-  static final List<_PendingSeed> _seedItems = <_PendingSeed>[
-    _PendingSeed(
-      tipo: 'Curacion',
-      paciente: 'Rosa Arrieta Atencio',
-      vencimiento: DateTime(2026, 4, 11, 17, 0),
-      rutaContexto: '/schedule',
-      contextoLabel: 'Agenda',
-      estadoInicial: _PendingFlowStatus.pendiente,
-      detalle: 'Clinica de herida pendiente de confirmacion.',
-    ),
-    _PendingSeed(
-      tipo: 'Medicacion',
-      paciente: 'Yovanne Jose Perez Barrios',
-      vencimiento: DateTime(2026, 4, 11, 21, 0),
-      rutaContexto: '/schedule',
-      contextoLabel: 'Agenda',
-      estadoInicial: _PendingFlowStatus.enGestion,
-      detalle: 'Aplicacion IV de esquema nocturno.',
-    ),
-    _PendingSeed(
-      tipo: 'Seguimiento',
-      paciente: 'Gloria Cristina Vargas',
-      vencimiento: DateTime(2026, 4, 12, 8, 0),
-      rutaContexto: '/cases',
-      contextoLabel: 'Casos',
-      estadoInicial: _PendingFlowStatus.pendiente,
-      detalle: 'Validar evolucion de celulitis y signos vitales.',
-    ),
-  ];
+  List<_PendingItemVm> _items = <_PendingItemVm>[];
 
   @override
   void initState() {
     super.initState();
-    _items = _seedItems
-        .map(
-          (_PendingSeed e) => _PendingItemVm(
-            id: '${e.paciente}_${e.tipo}'.toLowerCase().replaceAll(' ', '_'),
-            tipo: e.tipo,
-            paciente: e.paciente,
-            vencimiento: e.vencimiento,
-            detalle: e.detalle,
-            rutaContexto: e.rutaContexto,
-            contextoLabel: e.contextoLabel,
-            estadoManual: e.estadoInicial,
-            responsable: 'Sin asignar',
-          ),
-        )
-        .toList();
+    _pendingSubscription = _opsRepo.watchPendings().listen((
+      List<OpsPendingRecord> records,
+    ) {
+      if (!mounted) return;
+      final Map<String, _PendingItemVm> existing = <String, _PendingItemVm>{
+        for (final _PendingItemVm i in _items) i.id: i,
+      };
+      setState(() {
+        _items = records.map((OpsPendingRecord record) {
+          return _PendingItemVm.fromRecord(
+            record: record,
+            existing: existing[record.id],
+          );
+        }).toList();
+      });
+    });
   }
 
   List<_PendingItemVm> get _filteredItems {
@@ -81,8 +57,8 @@ class _PendingScreenState extends State<PendingScreen> {
           item.responsable.toLowerCase().contains(query);
       final bool matchesTipo =
           _tipoFiltro == 'Todos' || item.tipo == _tipoFiltro;
-      final bool matchesEstado = _estadoFiltro == 'Todos' ||
-          _statusFor(item).label == _estadoFiltro;
+      final bool matchesEstado =
+          _estadoFiltro == 'Todos' || _statusFor(item).label == _estadoFiltro;
       return matchesQuery && matchesTipo && matchesEstado;
     }).toList();
   }
@@ -94,12 +70,12 @@ class _PendingScreenState extends State<PendingScreen> {
   }
 
   List<String> get _estados => <String>[
-        'Todos',
-        _PendingFlowStatus.pendiente.label,
-        _PendingFlowStatus.enGestion.label,
-        _PendingFlowStatus.vencido.label,
-        _PendingFlowStatus.resuelto.label,
-      ];
+    'Todos',
+    _PendingFlowStatus.pendiente.label,
+    _PendingFlowStatus.enGestion.label,
+    _PendingFlowStatus.vencido.label,
+    _PendingFlowStatus.resuelto.label,
+  ];
 
   _PendingFlowStatus _statusFor(_PendingItemVm item) {
     if (item.estadoManual == _PendingFlowStatus.resuelto) {
@@ -150,34 +126,51 @@ class _PendingScreenState extends State<PendingScreen> {
     });
   }
 
-  void _resolveItem(_PendingItemVm item) {
+  Future<void> _resolveItem(_PendingItemVm item) async {
     setState(() {
       item.estadoManual = _PendingFlowStatus.resuelto;
     });
+    await _opsRepo.updatePending(id: item.id, status: 'resuelto');
   }
 
-  void _postponeItem(_PendingItemVm item) {
+  Future<void> _postponeItem(_PendingItemVm item) async {
     setState(() {
       item.vencimiento = item.vencimiento.add(const Duration(days: 1));
       if (item.estadoManual != _PendingFlowStatus.resuelto) {
         item.estadoManual = _PendingFlowStatus.pendiente;
       }
     });
+    await _opsRepo.updatePending(
+      id: item.id,
+      dueAt: item.vencimiento,
+      status: item.estadoManual.firestoreKey,
+    );
   }
 
-  void _markInProgress(_PendingItemVm item) {
+  Future<void> _markInProgress(_PendingItemVm item) async {
     if (item.estadoManual == _PendingFlowStatus.resuelto) return;
     setState(() {
       item.estadoManual = _PendingFlowStatus.enGestion;
     });
+    await _opsRepo.updatePending(id: item.id, status: 'en_gestion');
   }
 
   void _openContext(_PendingItemVm item) {
-    final String search = '${item.paciente} ${item.tipo}'.trim();
+    final String? itemId =
+        (item.visitId != null && item.visitId!.trim().isNotEmpty)
+        ? item.visitId
+        : item.pendingId;
     final String route = Uri(
       path: item.rutaContexto,
       queryParameters: <String, String>{
-        if (search.isNotEmpty) 'q': search,
+        'source': 'pending',
+        if (itemId != null && itemId.trim().isNotEmpty) 'itemId': itemId,
+        if (item.visitId != null && item.visitId!.trim().isNotEmpty)
+          'visitId': item.visitId!,
+        if (item.patientId != null && item.patientId!.trim().isNotEmpty)
+          'patientId': item.patientId!,
+        if (item.pendingId != null && item.pendingId!.trim().isNotEmpty)
+          'pendingId': item.pendingId!,
       },
     ).toString();
     context.go(route);
@@ -185,6 +178,7 @@ class _PendingScreenState extends State<PendingScreen> {
 
   @override
   void dispose() {
+    _pendingSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -197,7 +191,9 @@ class _PendingScreenState extends State<PendingScreen> {
       color: const Color(0xFFF5F7FA),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final double horizontalPadding = constraints.maxWidth >= 900 ? 16 : 12;
+          final double horizontalPadding = constraints.maxWidth >= 900
+              ? 16
+              : 12;
 
           return SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(
@@ -333,13 +329,15 @@ class _PendingScreenState extends State<PendingScreen> {
                 ),
                 const SizedBox(height: 12),
                 if (items.isEmpty)
-                  _PendingEmptyState(onClear: () {
-                    setState(() {
-                      _searchController.clear();
-                      _tipoFiltro = 'Todos';
-                      _estadoFiltro = 'Todos';
-                    });
-                  })
+                  _PendingEmptyState(
+                    onClear: () {
+                      setState(() {
+                        _searchController.clear();
+                        _tipoFiltro = 'Todos';
+                        _estadoFiltro = 'Todos';
+                      });
+                    },
+                  )
                 else
                   Column(
                     children: items
@@ -425,17 +423,14 @@ class _PendingCompactCard extends StatelessWidget {
           Text(
             item.paciente,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF243247),
-                ),
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF243247),
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             item.detalle,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF5B6474),
-            ),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF5B6474)),
           ),
           const SizedBox(height: 8),
           Align(
@@ -472,8 +467,9 @@ class _PendingCompactCard extends StatelessWidget {
                 SizedBox(
                   height: 38,
                   child: FilledButton(
-                    onPressed:
-                        status == _PendingFlowStatus.resuelto ? null : onStart,
+                    onPressed: status == _PendingFlowStatus.resuelto
+                        ? null
+                        : onStart,
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF17726D),
                       shape: RoundedRectangleBorder(
@@ -500,19 +496,19 @@ class _PendingCompactCard extends StatelessWidget {
                   },
                   itemBuilder: (BuildContext context) =>
                       <PopupMenuEntry<String>>[
-                    const PopupMenuItem<String>(
-                      value: 'postpone',
-                      child: Text('Posponer 1 dia'),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'reassign',
-                      child: Text('Reasignar responsable'),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'resolve',
-                      child: Text('Marcar como resuelto'),
-                    ),
-                  ],
+                        const PopupMenuItem<String>(
+                          value: 'postpone',
+                          child: Text('Posponer 1 dia'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'reassign',
+                          child: Text('Reasignar responsable'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'resolve',
+                          child: Text('Marcar como resuelto'),
+                        ),
+                      ],
                   child: Container(
                     height: 38,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -567,11 +563,7 @@ class _PendingEmptyState extends StatelessWidget {
       ),
       child: Column(
         children: <Widget>[
-          const Icon(
-            Icons.inbox_outlined,
-            size: 42,
-            color: Color(0xFF8A9BB0),
-          ),
+          const Icon(Icons.inbox_outlined, size: 42, color: Color(0xFF8A9BB0)),
           const SizedBox(height: 10),
           const Text(
             'No hay pendientes para los filtros actuales',
@@ -609,26 +601,6 @@ class _PendingEmptyState extends StatelessWidget {
   }
 }
 
-class _PendingSeed {
-  const _PendingSeed({
-    required this.tipo,
-    required this.paciente,
-    required this.vencimiento,
-    required this.detalle,
-    required this.rutaContexto,
-    required this.contextoLabel,
-    required this.estadoInicial,
-  });
-
-  final String tipo;
-  final String paciente;
-  final DateTime vencimiento;
-  final String detalle;
-  final String rutaContexto;
-  final String contextoLabel;
-  final _PendingFlowStatus estadoInicial;
-}
-
 class _PendingItemVm {
   _PendingItemVm({
     required this.id,
@@ -638,6 +610,9 @@ class _PendingItemVm {
     required this.detalle,
     required this.rutaContexto,
     required this.contextoLabel,
+    this.visitId,
+    this.patientId,
+    this.pendingId,
     required this.estadoManual,
     required this.responsable,
   });
@@ -649,8 +624,36 @@ class _PendingItemVm {
   final String detalle;
   final String rutaContexto;
   final String contextoLabel;
+  final String? visitId;
+  final String? patientId;
+  final String? pendingId;
   _PendingFlowStatus estadoManual;
   String responsable;
+
+  factory _PendingItemVm.fromRecord({
+    required OpsPendingRecord record,
+    _PendingItemVm? existing,
+  }) {
+    return _PendingItemVm(
+      id: record.id,
+      tipo: record.tipo,
+      paciente: record.paciente,
+      vencimiento: record.vencimiento,
+      detalle: record.detalle,
+      rutaContexto: record.rutaContexto,
+      contextoLabel: record.contextoLabel,
+      visitId: record.visitId,
+      patientId: record.patientId,
+      pendingId: record.pendingId,
+      estadoManual:
+          _PendingFlowStatusX.fromFirestore(record.status) ??
+          existing?.estadoManual ??
+          _PendingFlowStatus.pendiente,
+      responsable: (record.responsable?.trim().isNotEmpty ?? false)
+          ? record.responsable!.trim()
+          : (existing?.responsable ?? 'Sin asignar'),
+    );
+  }
 }
 
 AppChipTone _statusTone(_PendingFlowStatus status) {
@@ -707,6 +710,36 @@ extension _PendingFlowStatusX on _PendingFlowStatus {
         return 'Vencido';
       case _PendingFlowStatus.resuelto:
         return 'Resuelto';
+    }
+  }
+
+  String get firestoreKey {
+    switch (this) {
+      case _PendingFlowStatus.pendiente:
+        return 'pendiente';
+      case _PendingFlowStatus.enGestion:
+        return 'en_gestion';
+      case _PendingFlowStatus.vencido:
+        return 'vencido';
+      case _PendingFlowStatus.resuelto:
+        return 'resuelto';
+    }
+  }
+
+  static _PendingFlowStatus? fromFirestore(String? raw) {
+    if (raw == null) return null;
+    switch (raw.trim().toLowerCase()) {
+      case 'pendiente':
+        return _PendingFlowStatus.pendiente;
+      case 'en_gestion':
+      case 'en gestion':
+        return _PendingFlowStatus.enGestion;
+      case 'vencido':
+        return _PendingFlowStatus.vencido;
+      case 'resuelto':
+        return _PendingFlowStatus.resuelto;
+      default:
+        return null;
     }
   }
 }

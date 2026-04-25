@@ -1,3 +1,4 @@
+// Última actualización: 13/04/2026
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hext/core/models/auxiliar_domiciliario.dart';
@@ -8,6 +9,20 @@ import 'package:hext/core/utils/colombia_holidays.dart';
 import 'package:hext/shared/widgets/app_chip.dart';
 import 'package:hext/shared/widgets/agenda_subnav.dart';
 import 'package:hext/shared/widgets/module_header.dart';
+
+// Formatea texto clínico: inserta salto de línea después de símbolos o números de sección
+String formatClinicalText(String text) {
+  // Inserta salto de línea después de patrones como 1. , 1.1 , 2.1- , ** , + , %, etc.
+  final regex = RegExp(r'(\d+\.\d*[-]?|\d+\.|\*\*|\+|%)');
+  return text.replaceAllMapped(regex, (match) {
+    final str = match.group(0)!;
+    // Si no está al inicio, agrega salto de línea antes
+    if (match.start > 0 && text[match.start - 1] != '\n') {
+      return '\n$str';
+    }
+    return str;
+  }).replaceAll(RegExp(r' +'), ' ').replaceAll(RegExp(r'\n +'), '\n').trim();
+}
 
 const List<String> kHorarioAuxiliaresRegistrados = <String>[
   'Luis Orozco',
@@ -26,6 +41,126 @@ class HorariosScreen extends StatefulWidget {
 }
 
 class _HorariosScreenState extends State<HorariosScreen> {
+  // Franja resumen compacta arriba de la matriz
+  Widget _buildCompactSummaryBar(GeneratedMonthPlan plan, int totalAuxiliares) {
+    int critical = 0;
+    int alert = 0;
+    int info = 0;
+    for (final summary in plan.weeklySummaries) {
+      if (summary.status == WeeklyHoursStatus.invalid) {
+        critical++;
+      } else if (summary.status == WeeklyHoursStatus.alert) {
+        alert++;
+      } else {
+        info++;
+      }
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDCE3EA)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: <Widget>[
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Auxiliares activos',
+                style: TextStyle(fontSize: 13, color: Color(0xFF748096)),
+              ),
+              Text(
+                '$totalAuxiliares',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF243247),
+                ),
+              ),
+            ],
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              const Text(
+                'Mes',
+                style: TextStyle(fontSize: 13, color: Color(0xFF748096)),
+              ),
+              Text(
+                _monthYearLabel(_focusedMonth),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF243247),
+                ),
+              ),
+            ],
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              const Text(
+                'Críticas',
+                style: TextStyle(fontSize: 13, color: Color(0xFFB42318)),
+              ),
+              Text(
+                '$critical',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFB42318),
+                ),
+              ),
+              const Text(
+                'Alertas',
+                style: TextStyle(fontSize: 13, color: Color(0xFF946200)),
+              ),
+              Text(
+                '$alert',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF946200),
+                ),
+              ),
+              const Text(
+                'Informativas',
+                style: TextStyle(fontSize: 13, color: Color(0xFF17726D)),
+              ),
+              Text(
+                '$info',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF17726D),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper para minHeight de empty states
+  double _emptyStateMinHeight(BuildContext context, bool isEmpty) {
+    return _isEmptyStateCompact(context, isEmpty) ? 130 : 0;
+  }
+
+  // Helper para detectar desktop por ancho
+  bool _isDesktop(BuildContext context) {
+    return MediaQuery.sizeOf(context).width >= 1024;
+  }
+
+  // Helper para compactar estados vacíos
+  bool _isEmptyStateCompact(BuildContext context, bool isEmpty) {
+    return _isDesktop(context) && isEmpty;
+  }
+
   DateTime _focusedMonth = DateTime(2026, 4, 1);
 
   /// Con 2 auxiliares, el domingo puede manejarse como contingencia J/L.
@@ -76,149 +211,140 @@ class _HorariosScreenState extends State<HorariosScreen> {
       overrides: _currentOverrides,
     );
 
+    final bool isDesktop = _isDesktop(context);
+    final double horizontalPadding = isDesktop ? 32 : 12;
+    final double topScrollOffset = isDesktop ? 16 : 6;
+
     return Container(
       color: const Color(0xFFF5F7FA),
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final double horizontalPadding = constraints.maxWidth >= 900
-              ? 16
-              : 12;
-
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              20,
-              horizontalPadding,
-              28,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                ModuleHeader(
-                  title: 'Horarios de auxiliares de enfermeria',
-                  subtitle:
-                      'Cuadrante mensual con cobertura prioritaria M/T y control semanal de horas.',
-                ),
-                const SizedBox(height: 10),
+      child: Padding(
+        padding: EdgeInsets.only(top: topScrollOffset),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
+            14,
+            horizontalPadding,
+            28,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              // Título principal
+              ModuleHeader(
+                title: 'Horarios de auxiliares de enfermería',
+                subtitle:
+                    'Cuadrante mensual con cobertura prioritaria M/T y control semanal de horas.',
+              ),
+              const SizedBox(height: 10),
+              if (!isDesktop)
                 const AgendaSubnav(section: AgendaSubnavSection.horarios),
-                const SizedBox(height: 12),
-                _buildTopStatusBlock(
-                  plan: plan,
-                  totalAuxiliares: auxiliaresRegistrados.length,
-                ),
-                const SizedBox(height: 16),
-                _buildLegendCard(),
-                const SizedBox(height: 12),
-                _buildConventionsCard(plan, auxiliaresRegistrados),
-                const SizedBox(height: 12),
-                _buildWeeklyAlertsCard(plan.weeklySummaries),
-                const SizedBox(height: 14),
-                Center(
-                  child: Text(
-                    _monthYearLabel(_focusedMonth),
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF243247),
+              if (!isDesktop) const SizedBox(height: 12),
+              // Franja resumen compacta arriba
+              _buildCompactSummaryBar(plan, auxiliaresRegistrados.length),
+              const SizedBox(height: 14),
+              // Matriz de cuadrante y navegación de mes
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  SizedBox(
+                    height: 40,
+                    child: OutlinedButton(
+                      onPressed: _goPreviousMonth,
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFD7DCE3)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        backgroundColor: Colors.white,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const Icon(
+                            Icons.chevron_left_rounded,
+                            size: 20,
+                            color: Color(0xFF5B6474),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _monthYearLabel(
+                              DateTime(
+                                _focusedMonth.year,
+                                _focusedMonth.month - 1,
+                                1,
+                              ),
+                            ).split(' ').first,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF5B6474),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: <Widget>[
-                    SizedBox(
-                      height: 40,
-                      child: OutlinedButton(
-                        onPressed: _goPreviousMonth,
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFD7DCE3)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          backgroundColor: Colors.white,
+                  const SizedBox(width: 10),
+                  _ScheduleMatrixCard(
+                    days: days,
+                    focusedMonth: _focusedMonth,
+                    auxiliares: plan.auxiliares,
+                    weeklySummaries: plan.weeklySummaries,
+                    onCellTap: _showCellPicker,
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    height: 40,
+                    child: OutlinedButton(
+                      onPressed: _goNextMonth,
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFD7DCE3)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const Icon(
-                              Icons.chevron_left_rounded,
-                              size: 20,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        backgroundColor: Colors.white,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            _monthYearLabel(
+                              DateTime(
+                                _focusedMonth.year,
+                                _focusedMonth.month + 1,
+                                1,
+                              ),
+                            ).split(' ').first,
+                            style: const TextStyle(
+                              fontSize: 13,
                               color: Color(0xFF5B6474),
                             ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _monthYearLabel(
-                                DateTime(
-                                  _focusedMonth.year,
-                                  _focusedMonth.month - 1,
-                                  1,
-                                ),
-                              ).split(' ').first,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF5B6474),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _ScheduleMatrixCard(
-                      days: days,
-                      focusedMonth: _focusedMonth,
-                      auxiliares: plan.auxiliares,
-                      weeklySummaries: plan.weeklySummaries,
-                      onCellTap: _showCellPicker,
-                    ),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      height: 40,
-                      child: OutlinedButton(
-                        onPressed: _goNextMonth,
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFD7DCE3)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          backgroundColor: Colors.white,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            Text(
-                              _monthYearLabel(
-                                DateTime(
-                                  _focusedMonth.year,
-                                  _focusedMonth.month + 1,
-                                  1,
-                                ),
-                              ).split(' ').first,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF5B6474),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(
-                              Icons.chevron_right_rounded,
-                              size: 20,
-                              color: Color(0xFF5B6474),
-                            ),
-                          ],
-                        ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 20,
+                            color: Color(0xFF5B6474),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              // Convenciones y criterios extendidos ahora debajo de la matriz
+              _buildLegendCard(),
+              const SizedBox(height: 10),
+              _buildConventionsCard(plan, auxiliaresRegistrados),
+              const SizedBox(height: 16),
+              // Resumen semanal de horas y alertas
+              _buildWeeklyAlertsCard(plan.weeklySummaries),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -288,61 +414,6 @@ class _HorariosScreenState extends State<HorariosScreen> {
                 leadingDot: true,
               ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTopStatusBlock({
-    required GeneratedMonthPlan plan,
-    required int totalAuxiliares,
-  }) {
-    int critical = 0;
-    int alert = 0;
-    int info = 0;
-
-    for (final WeeklyHoursSummary summary in plan.weeklySummaries) {
-      if (summary.status == WeeklyHoursStatus.invalid) {
-        critical += 1;
-      } else if (summary.status == WeeklyHoursStatus.alert) {
-        alert += 1;
-      } else {
-        info += 1;
-      }
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: _cardDecoration(),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        children: <Widget>[
-          _TopInfoTile(
-            icon: Icons.grid_view_rounded,
-            title: 'Resumen del modulo',
-            value: '$totalAuxiliares auxiliares activos',
-            subtitle: _monthYearLabel(_focusedMonth),
-          ),
-          _TopInfoTile(
-            icon: Icons.warning_amber_rounded,
-            title: 'Alertas de cobertura',
-            value: '$critical criticas · $alert alertas',
-            subtitle: '$info registros informativos',
-            tone: critical > 0
-                ? AppChipTone.danger
-                : alert > 0
-                ? AppChipTone.warning
-                : AppChipTone.success,
-          ),
-          const _TopInfoTile(
-            icon: Icons.tune_rounded,
-            title: 'Acciones',
-            value: 'Edicion manual de turnos',
-            subtitle: 'Sin tocar reglas del motor',
-            tone: AppChipTone.info,
           ),
         ],
       ),
@@ -422,19 +493,24 @@ class _HorariosScreenState extends State<HorariosScreen> {
 
   Widget _buildWeeklyAlertsCard(List<WeeklyHoursSummary> summaries) {
     final List<WeeklyHoursSummary> critical = summaries
-      .where((WeeklyHoursSummary s) => s.status == WeeklyHoursStatus.invalid)
-      .toList();
+        .where((WeeklyHoursSummary s) => s.status == WeeklyHoursStatus.invalid)
+        .toList();
     final List<WeeklyHoursSummary> alert = summaries
-      .where((WeeklyHoursSummary s) => s.status == WeeklyHoursStatus.alert)
-      .toList();
+        .where((WeeklyHoursSummary s) => s.status == WeeklyHoursStatus.alert)
+        .toList();
     final List<WeeklyHoursSummary> info = summaries
-      .where((WeeklyHoursSummary s) => s.status == WeeklyHoursStatus.ok)
-      .toList();
+        .where((WeeklyHoursSummary s) => s.status == WeeklyHoursStatus.ok)
+        .toList();
+
+    final bool isEmpty = critical.isEmpty && alert.isEmpty;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: _cardDecoration(),
+      constraints: BoxConstraints(
+        minHeight: _emptyStateMinHeight(context, isEmpty),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -484,7 +560,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
               items: alert,
             ),
           ],
-          if (critical.isEmpty && alert.isEmpty) ...<Widget>[
+          if (isEmpty) ...<Widget>[
             const SizedBox(height: 10),
             const Text(
               'Sin eventos criticos ni alertas activas en la semana.',
@@ -508,6 +584,12 @@ class _HorariosScreenState extends State<HorariosScreen> {
         return a.weekOrdinal.compareTo(b.weekOrdinal);
       });
 
+    const int maxVisibleChips = 8;
+    final List<WeeklyHoursSummary> visible = sorted
+        .take(maxVisibleChips)
+        .toList();
+    final int hiddenCount = sorted.length - visible.length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -523,16 +605,18 @@ class _HorariosScreenState extends State<HorariosScreen> {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: sorted
-              .map(
-                (WeeklyHoursSummary item) => AppChip(
-                  label:
-                      '${item.auxiliarNombre} · S${item.weekOrdinal} · ${item.totalHours} h',
-                  tone: tone,
-                  leadingDot: true,
-                ),
-              )
-              .toList(),
+          children: <Widget>[
+            ...visible.map(
+              (WeeklyHoursSummary item) => AppChip(
+                label:
+                    '${item.auxiliarNombre} · S${item.weekOrdinal} · ${item.totalHours} h',
+                tone: tone,
+                leadingDot: true,
+              ),
+            ),
+            if (hiddenCount > 0)
+              AppChip(label: '+$hiddenCount más', tone: AppChipTone.neutral),
+          ],
         ),
       ],
     );
@@ -689,7 +773,7 @@ class _ScheduleMatrixCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double tableWidth =
-      nameColumnWidth + (days.length * dayCellWidth) + summaryColumnWidth;
+        nameColumnWidth + (days.length * dayCellWidth) + summaryColumnWidth;
 
     return Container(
       decoration: BoxDecoration(
@@ -1026,7 +1110,7 @@ class _ScheduleCodeCell extends StatelessWidget {
     final Color background = isOutOfMonth
         ? const Color(0xFFF4F5F7)
         : isSpecialDay
-      ? const Color(0xFFFFECEC)
+        ? const Color(0xFFFFECEC)
         : palette.background;
 
     final Color foreground = isOutOfMonth
@@ -1038,7 +1122,7 @@ class _ScheduleCodeCell extends StatelessWidget {
     final Color rightBorder = isOutOfMonth
         ? const Color(0xFFEBEDF0)
         : isSpecialDay
-      ? const Color(0xFFECCACA)
+        ? const Color(0xFFECCACA)
         : const Color(0xFFE7ECF1);
 
     return Tooltip(
@@ -1066,7 +1150,6 @@ class _ScheduleCodeCell extends StatelessWidget {
     );
   }
 }
-
 
 class _MiniInfo extends StatelessWidget {
   const _MiniInfo({required this.text});
@@ -1125,7 +1208,7 @@ class _TopInfoTile extends StatelessWidget {
     required this.title,
     required this.value,
     required this.subtitle,
-    this.tone = AppChipTone.neutral,
+    required this.tone,
   });
 
   final IconData icon;
@@ -2092,11 +2175,7 @@ int _effectiveTargetHoursForDisplayedDays({
   required int targetHours,
   required int displayedDays,
 }) {
-  if (displayedDays >= 7) {
-    return targetHours;
-  }
-
-  return ((targetHours * displayedDays) / 7).round();
+  return targetHours;
 }
 
 int _sumHoursForWeek({

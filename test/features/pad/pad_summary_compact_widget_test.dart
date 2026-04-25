@@ -19,6 +19,7 @@ void main() {
       generalStatusLabel: status,
       principalTone: PadSummaryTone.dominant,
       statusTone: PadSummaryTone.active,
+      barrio: '',
     );
   }
 

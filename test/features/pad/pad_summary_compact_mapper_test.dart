@@ -14,6 +14,7 @@ void main() {
           ],
           detalleClinicoResumido: 'Detalle inicial',
           situacionAsistencial: 'Activos en PAD',
+          barrio: '',
         ),
       );
 
@@ -31,6 +32,7 @@ void main() {
             motivosActivos: <String>['Definir pertinencia ingreso PAD'],
             detalleClinicoResumido: 'Detalle',
             estadoPad: 'Pendiente decision',
+            barrio: '',
           ),
         );
 
@@ -46,6 +48,7 @@ void main() {
         const PadCaseData(
           motivosActivos: <String>[],
           observaciones: 'Sin detalle estructurado',
+          barrio: '',
         ),
       );
 
@@ -61,6 +64,7 @@ void main() {
           motivoPrincipalLabel: 'Curaciones',
           observaciones: 'Observacion',
           situacionAsistencial: 'Estado experimental',
+          barrio: '',
         ),
       );
 
