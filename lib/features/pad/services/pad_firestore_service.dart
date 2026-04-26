@@ -14,6 +14,17 @@ class PadFirestoreService {
             ...data,
             'updatedAt': FieldValue.serverTimestamp(),
           });
+
+          final bool cerrarAgenda =
+              data['estadoPad'] == 'egresado' ||
+              data['fechaEgreso'] != null ||
+              data['tipoEgreso'] != null ||
+              data['situacionAsistencialLabel'] == 'Egresado';
+
+          if (cerrarAgenda) {
+            await cerrarAgendaEventPorPaciente(id);
+          }
+
           debugPrint('[PadFirestoreService.actualizarCensoPaciente] docId = $id');
         }
       /// Obtiene un caso PAD desde la colección censoPacientes por id.
@@ -90,8 +101,16 @@ class PadFirestoreService {
       debugPrint('[PadFirestoreService.guardarCandidato] docId = ${docRef.id}');
 
       // Crear evento de agenda si corresponde
+      final dynamic fechaVisitaRaw = data['fechaVisita'];
+      DateTime? fechaVisita;
+      if (fechaVisitaRaw is DateTime) {
+        fechaVisita = fechaVisitaRaw;
+      } else if (fechaVisitaRaw is Timestamp) {
+        fechaVisita = fechaVisitaRaw.toDate();
+      }
+
       if ((data['requiereVisita'] == true || data['requiereVisita'] == 'true') &&
-          data['fechaVisita'] != null && data['horaVisita'] != null) {
+          fechaVisita != null && data['horaVisita'] != null) {
         try {
           debugPrint('[PadFirestoreService.guardarCandidato] entrando a createAgendaEvent');
           debugPrint('[PadFirestoreService.guardarCandidato] data = $data');
@@ -100,13 +119,13 @@ class PadFirestoreService {
           await agendaRepo.createAgendaEvent(
             patientId: docRef.id,
             patientDisplay: data['nombreCompleto'] ?? '',
-            fecha: (data['fechaVisita'] as DateTime),
+            fecha: fechaVisita,
             hora: data['horaVisita'].toString(),
             dx: data['diagnostico']?.toString() ?? '',
             tratamiento: data['tratamiento']?.toString() ?? '',
             barrio: data['barrio']?.toString() ?? '',
             direccion: data['direccion']?.toString() ?? '',
-            referencia: data['referencia']?.toString() ?? '',
+            referencia: data['referenciaUbicacion']?.toString() ?? data['referencia']?.toString() ?? '',
             contacto: data['contacto']?.toString() ?? '',
             estadoAgenda: 'programada',
             sourceType: 'manual',

@@ -1112,15 +1112,14 @@ class _DatesCell extends StatelessWidget {
 class _SimpleCellText extends StatelessWidget {
 
   final String text;
-  final int maxLines;
 
-  const _SimpleCellText(this.text, {this.maxLines = 2});
+  const _SimpleCellText(this.text);
 
   @override
   Widget build(BuildContext context) {
     return Text(
       text,
-      maxLines: maxLines,
+      maxLines: 2,
       overflow: TextOverflow.ellipsis,
       style: const TextStyle(
         fontSize: 13.5,

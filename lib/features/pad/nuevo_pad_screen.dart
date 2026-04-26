@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hext/features/pad/services/pad_firestore_service.dart'
     as pad_service;
-import 'package:hext/features/pad/widgets/paciente_captacion_form.dart'
+import 'package:hext/features/pad/presentation/captacion/paciente_captacion_form.dart'
     as pad_form;
 
 class NuevoPadScreen extends StatelessWidget {

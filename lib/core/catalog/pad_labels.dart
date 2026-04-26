@@ -86,7 +86,8 @@ class PadUiLabels {
   static const String kpiCurrentPatients = 'Pacientes actuales';
   static const String kpiTodayVisits = 'Visitas de hoy';
   static const String kpiNoAdmissions = 'No ingresos';
-  static const String kpiDischarges = 'Altas';
+  static const String kpiDischarges = 'Egresos';
+    static const String kpiTotalMovement = 'Movimiento PAD';
   static const String kpiReadmissions = 'Reingresos';
   static const String kpiAverageStayDays = 'Días prom. estancia';
 
