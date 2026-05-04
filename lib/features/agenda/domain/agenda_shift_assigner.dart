@@ -17,8 +17,19 @@ class AgendaAssignableVisit {
   final String direccion;
   final String? referencia;
   final String contacto;
+  final String motivoKey;
+  final Map<String, dynamic> detalleMotivo;
   final String pendiente;
   final String personalAsignado;
+  final DateTime? fechaProbableFinalizacion;
+  final String? pacienteCuentaConInfusor;
+  final bool antibioticoCandidatoInfusor;
+  final String? antibioticoDetectado;
+  final bool requiereCambioDiarioInfusor;
+  final String? programacionSugerida;
+  final String? frecuenciaTratamiento;
+  final String? frecuenciaTratamientoLabel;
+  final String? tipoActividadAgenda;
 
   const AgendaAssignableVisit({
     required this.fecha,
@@ -36,8 +47,19 @@ class AgendaAssignableVisit {
     required this.direccion,
     this.referencia,
     required this.contacto,
+    this.motivoKey = '',
+    this.detalleMotivo = const <String, dynamic>{},
     required this.pendiente,
     required this.personalAsignado,
+    this.fechaProbableFinalizacion,
+    this.pacienteCuentaConInfusor,
+    this.antibioticoCandidatoInfusor = false,
+    this.antibioticoDetectado,
+    this.requiereCambioDiarioInfusor = false,
+    this.programacionSugerida,
+    this.frecuenciaTratamiento,
+    this.frecuenciaTratamientoLabel,
+    this.tipoActividadAgenda,
   });
 
   AgendaAssignableVisit copyWith({
@@ -56,8 +78,19 @@ class AgendaAssignableVisit {
     String? direccion,
     String? referencia,
     String? contacto,
+    String? motivoKey,
+    Map<String, dynamic>? detalleMotivo,
     String? pendiente,
     String? personalAsignado,
+    DateTime? fechaProbableFinalizacion,
+    String? pacienteCuentaConInfusor,
+    bool? antibioticoCandidatoInfusor,
+    String? antibioticoDetectado,
+    bool? requiereCambioDiarioInfusor,
+    String? programacionSugerida,
+    String? frecuenciaTratamiento,
+    String? frecuenciaTratamientoLabel,
+    String? tipoActividadAgenda,
   }) {
     return AgendaAssignableVisit(
       fecha: fecha ?? this.fecha,
@@ -75,8 +108,25 @@ class AgendaAssignableVisit {
       direccion: direccion ?? this.direccion,
       referencia: referencia ?? this.referencia,
       contacto: contacto ?? this.contacto,
+      motivoKey: motivoKey ?? this.motivoKey,
+      detalleMotivo: detalleMotivo ?? this.detalleMotivo,
       pendiente: pendiente ?? this.pendiente,
       personalAsignado: personalAsignado ?? this.personalAsignado,
+      fechaProbableFinalizacion:
+          fechaProbableFinalizacion ?? this.fechaProbableFinalizacion,
+      pacienteCuentaConInfusor:
+          pacienteCuentaConInfusor ?? this.pacienteCuentaConInfusor,
+      antibioticoCandidatoInfusor:
+          antibioticoCandidatoInfusor ?? this.antibioticoCandidatoInfusor,
+      antibioticoDetectado: antibioticoDetectado ?? this.antibioticoDetectado,
+      requiereCambioDiarioInfusor:
+          requiereCambioDiarioInfusor ?? this.requiereCambioDiarioInfusor,
+      programacionSugerida: programacionSugerida ?? this.programacionSugerida,
+      frecuenciaTratamiento:
+          frecuenciaTratamiento ?? this.frecuenciaTratamiento,
+      frecuenciaTratamientoLabel:
+          frecuenciaTratamientoLabel ?? this.frecuenciaTratamientoLabel,
+      tipoActividadAgenda: tipoActividadAgenda ?? this.tipoActividadAgenda,
     );
   }
 }

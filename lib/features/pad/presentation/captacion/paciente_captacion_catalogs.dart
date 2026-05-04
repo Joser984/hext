@@ -1,6 +1,6 @@
 import 'paciente_captacion_models.dart';
 
-const String grupoRiesgoOtro = 'OTRO';
+const String grupoRiesgoOtro = 'Otro';
 const String barrioOtro = 'Otro';
 
 const List<ServicioQuePresenta> servicioQuePresentaOptions = <ServicioQuePresenta>[
@@ -24,31 +24,31 @@ const List<OrigenPaciente> origenPacienteOptions = <OrigenPaciente>[
 ];
 
 const List<String> grupoRiesgoOptions = <String>[
-  'ENF. INFECCIOSAS Y PARASITARIAS',
-  'EMBARAZO, PARTO Y PUERPERIO',
-  'ALCOHOL/DROGAS Y TRASTORNOS ORGANICOS MENTALES INDUCIDOS POR ALCOHOL/DROGAS',
-  'ENF. O TRAST. MENTALES',
-  'ENF. Y TRAST. DE LA PIEL, DEL TEJIDO SUBCUTANEO Y DE LA MAMA',
-  'ENF. Y TRAST. DE LA SANGRE, DEL SISTEMA HEMATOPOYETICO Y DEL SISTEMA INMUNITARIO',
-  'ENF. Y TRAST. DEL OIDO, NARIZ, BOCA Y GARGANTA',
-  'ENF. Y TRAST. DEL OJO',
-  'ENF. Y TRAST. DEL RINON Y VIAS URINARIAS',
-  'ENF. Y TRAST. DEL SISTEMA CIRCULATORIO',
-  'ENF. Y TRAST. DEL SISTEMA DIGESTIVO',
-  'ENF. Y TRAST. DEL SISTEMA HEPATOBILIAR Y PANCREAS',
-  'ENF. Y TRAST. DEL SISTEMA MUSCULOESQUELETICO Y TEJIDO CONECTIVO',
-  'ENF. Y TRAST. DEL SISTEMA NERVIOSO',
-  'ENF. Y TRAST. DEL SISTEMA REPRODUCTOR FEMENINO',
-  'ENF. Y TRAST. DEL SISTEMA REPRODUCTOR MASCULINO',
-  'ENF. Y TRAST. DEL SISTEMA RESPIRATORIO',
-  'ENF. Y TRAST. ENDOCRINOS, NUTRICIONALES Y METABOLICOS',
-  'ENF. Y TRAST. MIELOPROLIFERATIVOS Y NEOPLASIAS POCO DIFERENCIADAS',
-  'FACTORES QUE INFLUYEN EN EL ESTADO DE SALUD Y OTROS CONTACTOS CON SERVICIOS DE SALUD',
-  'HERIDAS, ENVENENAMIENTOS Y EFECTOS TOXICOS DE LAS DROGAS',
-  'INFECCIONES POR EL VIH',
-  'POLITRAUMATISMOS IMPORTANTES',
-  'QUEMADURAS',
-  'RECIEN NACIDOS Y CUADROS DEL PERIODO PERINATAL',
+  'Enf. infecciosas y parasitarias',
+  'Embarazo, parto y puerperio',
+  'Alcohol/drogas y trastornos organicos mentales inducidos por alcohol/drogas',
+  'Enf. o trast. mentales',
+  'Enf. y trast. de la piel, del tejido subcutaneo y de la mama',
+  'Enf. y trast. de la sangre, del sistema hematopoyetico y del sistema inmunitario',
+  'Enf. y trast. del oido, nariz, boca y garganta',
+  'Enf. y trast. del ojo',
+  'Enf. y trast. del rinon y vias urinarias',
+  'Enf. y trast. del sistema circulatorio',
+  'Enf. y trast. del sistema digestivo',
+  'Enf. y trast. del sistema hepatobiliar y pancreas',
+  'Enf. y trast. del sistema musculoesqueletico y tejido conectivo',
+  'Enf. y trast. del sistema nervioso',
+  'Enf. y trast. del sistema reproductor femenino',
+  'Enf. y trast. del sistema reproductor masculino',
+  'Enf. y trast. del sistema respiratorio',
+  'Enf. y trast. endocrinos, nutricionales y metabolicos',
+  'Enf. y trast. mieloproliferativos y neoplasias poco diferenciadas',
+  'Factores que influyen en el estado de salud y otros contactos con servicios de salud',
+  'Heridas, envenenamientos y efectos toxicos de las drogas',
+  'Infecciones por el VIH',
+  'Politraumatismos importantes',
+  'Quemaduras',
+  'Recien nacidos y cuadros del periodo perinatal',
   grupoRiesgoOtro,
 ];
 

@@ -238,64 +238,60 @@ class CensoPaciente {
   factory CensoPaciente.fromMap(Map<String, dynamic> map, String id) {
     return CensoPaciente(
       id: id,
-      situacionAsistencialKey:
-          (map['situacionAsistencialKey'] as String?)?.trim() ?? '',
+      situacionAsistencialKey: _readString(map['situacionAsistencialKey']) ?? '',
       situacionAsistencialLabel:
-          (map['situacionAsistencialLabel'] as String?)?.trim() ?? '',
-      resultadoPadKey: (map['resultadoPadKey'] as String?)?.trim(),
-      resultadoPadLabel: (map['resultadoPadLabel'] as String?)?.trim(),
+        _readString(map['situacionAsistencialLabel']) ?? '',
+      resultadoPadKey: _readString(map['resultadoPadKey']),
+      resultadoPadLabel: _readString(map['resultadoPadLabel']),
       fechaIngreso: _readDate(map['fechaIngreso']),
       fechaEgreso: _readDate(map['fechaEgreso']),
       diasEstancia: _readInt(map['diasEstancia']),
-      unidadFuncionalOrigenKey:
-          (map['unidadFuncionalOrigenKey'] as String?)?.trim(),
+      unidadFuncionalOrigenKey: _readString(map['unidadFuncionalOrigenKey']),
       unidadFuncionalOrigenLabel:
-          (map['unidadFuncionalOrigenLabel'] as String?)?.trim(),
-      identificacion: (map['identificacion'] as String?)?.trim() ?? '',
-      nombreCompleto: (map['nombreCompleto'] as String?)?.trim() ?? '',
+        _readString(map['unidadFuncionalOrigenLabel']),
+      identificacion: _readString(map['identificacion']) ?? '',
+      nombreCompleto: _readString(map['nombreCompleto']) ?? '',
       edad: _readInt(map['edad']),
-      sexoKey: (map['sexoKey'] as String?)?.trim(),
-      sexoLabel: (map['sexoLabel'] as String?)?.trim(),
-      aseguradoraKey: (map['aseguradoraKey'] as String?)?.trim(),
-      aseguradoraLabel: (map['aseguradoraLabel'] as String?)?.trim(),
-      direccion: (map['direccion'] as String?)?.trim(),
-      barrio: (map['barrio'] as String?)?.trim(),
-      especialidadKey: (map['especialidadKey'] as String?)?.trim(),
-      especialidadLabel: (map['especialidadLabel'] as String?)?.trim(),
-      diagnosticos: (map['diagnosticos'] as String?)?.trim(),
-      resolucionAsistencialCaso:
-          (map['resolucionAsistencialCaso'] as String?)?.trim(),
-      grd: (map['grd'] as String?)?.trim(),
-      causaReingreso: (map['causaReingreso'] as String?)?.trim(),
+      sexoKey: _readString(map['sexoKey']),
+      sexoLabel: _readString(map['sexoLabel']),
+      aseguradoraKey: _readString(map['aseguradoraKey']),
+      aseguradoraLabel: _readString(map['aseguradoraLabel']),
+      direccion: _readString(map['direccion']),
+      barrio: _readString(map['barrio']),
+      especialidadKey: _readString(map['especialidadKey']),
+      especialidadLabel: _readString(map['especialidadLabel']),
+      diagnosticos: _readString(map['diagnosticos']),
+      resolucionAsistencialCaso: _readString(map['resolucionAsistencialCaso']),
+      grd: _readString(map['grd']),
+      causaReingreso: _readString(map['causaReingreso']),
       fechaSolicitudProcedimientoQx:
           _readDate(map['fechaSolicitudProcedimientoQx']),
       fechaRealizacionProcedimientoQx:
           _readDate(map['fechaRealizacionProcedimientoQx']),
-      observaciones: (map['observaciones'] as String?)?.trim(),
+      observaciones: _readString(map['observaciones']),
       createdAt: _readDate(map['createdAt']),
       updatedAt: _readDate(map['updatedAt']),
       pendienteValoracion: map['pendienteValoracion'] == true,
 
       // Campos agregados
-      motivoPrincipal: (map['motivoPrincipal'] as String?)?.trim(),
-      motivoPrincipalLabel: (map['motivoPrincipalLabel'] as String?)?.trim(),
+      motivoPrincipal: _readString(map['motivoPrincipal']),
+      motivoPrincipalLabel: _readString(map['motivoPrincipalLabel']),
       motivosActivos: _readStringList(map['motivosActivos']),
       motivos: _readStringList(map['motivos']),
-      detalleClinicoResumido:
-          (map['detalleClinicoResumido'] as String?)?.trim(),
-      resumenClinico: (map['resumenClinico'] as String?)?.trim(),
-      detalleClinico: (map['detalleClinico'] as String?)?.trim(),
-      resolucionPad: (map['resolucionPad'] as String?)?.trim(),
-      estadoCaso: (map['estadoCaso'] as String?)?.trim(),
-      tipoEgreso: (map['tipoEgreso'] as String?)?.trim(),
+      detalleClinicoResumido: _readString(map['detalleClinicoResumido']),
+      resumenClinico: _readString(map['resumenClinico']),
+      detalleClinico: _readString(map['detalleClinico']),
+      resolucionPad: _readString(map['resolucionPad']),
+      estadoCaso: _readString(map['estadoCaso']),
+      tipoEgreso: _readString(map['tipoEgreso']),
       observacionEgreso:
-          (map['observacionEgreso'] as String?)?.trim() ??
-          (map['observacionCierre'] as String?)?.trim(),
+        _readString(map['observacionEgreso']) ??
+        _readString(map['observacionCierre']),
       fechaEgresoTs: _readDate(map['fechaEgresoTs']),
-      actualizadoPor: (map['actualizadoPor'] as String?)?.trim(),
+      actualizadoPor: _readString(map['actualizadoPor']),
       actualizadoEn:
           _readDate(map['actualizadoEn']) ?? _readDate(map['updatedAt']),
-      destinoTraslado: (map['destinoTraslado'] as String?)?.trim(),
+      destinoTraslado: _readString(map['destinoTraslado']),
     );
   }
 
@@ -383,6 +379,12 @@ class CensoPaciente {
     if (value is double) return value.round();
     if (value is String) return int.tryParse(value.trim());
     return null;
+  }
+
+  static String? _readString(dynamic value) {
+    if (value == null) return null;
+    final String text = value.toString().trim();
+    return text.isEmpty ? null : text;
   }
 
   static List<String>? _readStringList(dynamic value) {

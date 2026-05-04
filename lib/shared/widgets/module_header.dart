@@ -1,50 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:hext/shared/widgets/hext_page_shell.dart';
 
-class ModuleHeader extends StatelessWidget {
+class ModuleHeader extends HextModuleHeader {
   const ModuleHeader({
     super.key,
-    required this.title,
-    required this.subtitle,
-    this.trailing,
+    required super.title,
+    required super.subtitle,
+    super.trailing,
   });
-
-  final String title;
-  final String subtitle;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                title,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF243247),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF7A869A),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (trailing != null) ...<Widget>[
-          const SizedBox(width: 12),
-          trailing!,
-        ],
-      ],
-    );
-  }
 }

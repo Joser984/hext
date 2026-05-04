@@ -1,16 +1,27 @@
 import 'dart:async';
 
+import 'package:geocoding/geocoding.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:hext/core/formatters/treatment_text_formatter.dart';
+import 'package:hext/core/models/app_user.dart';
 import 'package:hext/core/models/auxiliar_domiciliario.dart';
 import 'package:hext/core/repositories/in_memory_personal_repo.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
 import 'package:hext/features/agenda/data/agenda_repo.dart';
 import 'package:hext/features/agenda/domain/agenda_shift_assigner.dart';
+import 'package:hext/features/pad/utils/diagnosis_text_formatter.dart';
 import 'package:hext/features/schedule/horarios_screen.dart';
 import 'package:hext/shared/widgets/agenda_subnav.dart';
 import 'package:hext/shared/widgets/filter_shell.dart';
+import 'package:hext/shared/widgets/hext_page_shell.dart';
 import 'package:hext/shared/widgets/light_dropdown.dart';
 import 'package:hext/shared/widgets/light_input.dart';
-import 'package:hext/shared/widgets/module_header.dart';
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -35,7 +46,11 @@ class AgendaScreen extends StatefulWidget {
 }
 
 class _AgendaScreenState extends State<AgendaScreen> {
-  final AgendaRepo _agendaRepo = FirestoreAgendaRepo();
+  static const int _agendaNextDayCutoffHour = 16;
+  static const LatLng _defaultMapCenter = LatLng(10.391049, -75.479426);
+  static const bool _debugAgendaLogs = false;
+
+  final FirestoreAgendaRepo _agendaRepo = FirestoreAgendaRepo();
   final AgendaShiftAssigner _shiftAssigner = const AgendaShiftAssigner();
 
   late final TextEditingController _buscarController;
@@ -55,6 +70,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
   bool _preferFullDayTimeline = false;
 
   List<String> _activeAuxiliares = kHorarioAuxiliaresRegistrados;
+  Map<String, AuxiliarDomiciliario> _activeAuxiliaresByName =
+      <String, AuxiliarDomiciliario>{};
   List<AgendaEventRecord> _allEvents = <AgendaEventRecord>[];
 
   String? get _linkedVisitId => widget.initialVisitId?.trim().isNotEmpty == true
@@ -77,6 +94,41 @@ class _AgendaScreenState extends State<AgendaScreen> {
           _linkedPatientId != null ||
           _linkedPendingId != null);
 
+  bool _shouldUseNextOperationalDay([DateTime? nowOverride]) {
+    final DateTime now = nowOverride ?? DateTime.now();
+    final DateTime cutoff = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      _agendaNextDayCutoffHour,
+    );
+    return now.isAfter(cutoff);
+  }
+
+  DateTime _defaultAgendaFilterDate([DateTime? nowOverride]) {
+    final DateTime now = nowOverride ?? DateTime.now();
+    final DateTime baseDate = _shouldUseNextOperationalDay(now)
+        ? now.add(const Duration(days: 1))
+        : now;
+    return DateTime(baseDate.year, baseDate.month, baseDate.day);
+  }
+
+  String _formatAgendaFilterDate(DateTime value) {
+    final String day = value.day.toString().padLeft(2, '0');
+    final String month = value.month.toString().padLeft(2, '0');
+    return '$day/$month/${value.year}';
+  }
+
+  static String _dateKey(DateTime value) {
+    return '${value.year.toString().padLeft(4, '0')}-'
+        '${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')}';
+  }
+
+  void _applyDefaultAgendaFilterDate() {
+    _fechaController.text = _formatAgendaFilterDate(_defaultAgendaFilterDate());
+  }
+
   @override
   void initState() {
     super.initState();
@@ -90,9 +142,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     if (_hasLinkedIdentifiers) {
       _fechaController.clear();
     } else {
-      final DateTime now = DateTime.now();
-      _fechaController.text =
-          '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+      _applyDefaultAgendaFilterDate();
     }
 
     _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -103,6 +153,18 @@ class _AgendaScreenState extends State<AgendaScreen> {
     _agendaSubscription = _agendaRepo.watchAgendaEvents().listen((
       List<AgendaEventRecord> events,
     ) {
+      if (_debugAgendaLogs) {
+        final String preview = events
+            .take(5)
+            .map(
+              (event) =>
+                  '${event.id}|${event.patientId}|${event.patientDisplay}|${event.fecha.toIso8601String()}|${event.hora}|${event.estadoAgenda}|${event.sourceType}|closed=${event.isClosed}',
+            )
+            .join(' ; ');
+        debugPrint(
+          '[AgendaScreen] watchAgendaEvents recibidos=${events.length}${preview.isEmpty ? '' : ' preview=$preview'}',
+        );
+      }
       if (!mounted) return;
       setState(() {
         _allEvents = events;
@@ -122,10 +184,140 @@ class _AgendaScreenState extends State<AgendaScreen> {
     _activeAuxiliares = active
         .map((AuxiliarDomiciliario a) => a.nombreCompleto)
         .toList();
+    _activeAuxiliaresByName = <String, AuxiliarDomiciliario>{
+      for (final AuxiliarDomiciliario auxiliar in active)
+        _slugifyName(auxiliar.nombreCompleto): auxiliar,
+    };
 
     if (_activeAuxiliares.isEmpty) {
       _activeAuxiliares = kHorarioAuxiliaresRegistrados;
     }
+  }
+
+  _ResponsibleSummary _buildResponsibleSummary(_AgendaVisitItem item) {
+    final String responsibleName =
+        _AgendaFormatters.normalizeSpace(item.personalAsignado);
+    if (responsibleName.isEmpty) {
+      return const _ResponsibleSummary(
+        displayName: 'SIN ASIGNAR',
+        roleLabel: 'Asignación pendiente',
+        activityLabel: 'Responsable por definir',
+        isAssigned: false,
+      );
+    }
+
+    final AuxiliarDomiciliario? responsibleRecord =
+        _activeAuxiliaresByName[_slugifyName(responsibleName)];
+    final AppUserRole? role = responsibleRecord != null
+        ? _roleFromCargo(responsibleRecord.cargo)
+        : _inferResponsibleRole(item);
+
+    return _ResponsibleSummary(
+      displayName: responsibleName.toUpperCase(),
+      roleLabel: role == null ? 'Rol por confirmar' : _roleLabel(role),
+      activityLabel: role == null
+          ? _fallbackResponsibleActivity(item)
+          : _activityLabelForRole(role, item),
+      isAssigned: true,
+    );
+  }
+
+  AppUserRole? _roleFromCargo(String cargo) {
+    final String normalized = _slugifyName(cargo);
+    if (normalized.contains('directora')) {
+      return AppUserRole.directoraPrograma;
+    }
+    if (normalized.contains('medic')) {
+      return AppUserRole.medico;
+    }
+    if (normalized.contains('herida') || normalized.contains('curacion')) {
+      return AppUserRole.auxiliarEnfermeriaClinicaHeridas;
+    }
+    if (normalized.contains('coordin') || normalized.contains('operativ')) {
+      return AppUserRole.auxiliarAdministrativa;
+    }
+    if (normalized.contains('auxiliar de enfermeria') ||
+        normalized.contains('auxiliar domiciliario')) {
+      return AppUserRole.auxiliarEnfermeria;
+    }
+    if (normalized.contains('admin')) {
+      return AppUserRole.admin;
+    }
+    return null;
+  }
+
+  AppUserRole? _inferResponsibleRole(_AgendaVisitItem item) {
+    final String source = _slugifyName(
+      '${item.tipoActividadAgenda ?? ''} ${item.motivoKey} ${item.tratamiento}',
+    );
+    if (source.contains('herida') || source.contains('curacion')) {
+      return AppUserRole.auxiliarEnfermeriaClinicaHeridas;
+    }
+    if (source.contains('infusor') ||
+        source.contains('tratamiento') ||
+        source.contains('visita pad')) {
+      return AppUserRole.auxiliarEnfermeria;
+    }
+    if (source.contains('operativ')) {
+      return AppUserRole.auxiliarAdministrativa;
+    }
+    if (source.contains('valoracion') ||
+        source.contains('clinica') ||
+        source.contains('procedimiento') ||
+        source.contains('prequir')) {
+      return AppUserRole.medico;
+    }
+    return null;
+  }
+
+  String _roleLabel(AppUserRole role) {
+    switch (role) {
+      case AppUserRole.admin:
+        return 'Administrador';
+      case AppUserRole.medico:
+        return 'Médico';
+      case AppUserRole.directoraPrograma:
+        return 'Directora del programa';
+      case AppUserRole.auxiliarAdministrativa:
+        return 'Coordinación operativa';
+      case AppUserRole.auxiliarEnfermeria:
+        return 'Auxiliar de enfermería';
+      case AppUserRole.auxiliarEnfermeriaClinicaHeridas:
+        return 'Clínica de heridas';
+    }
+  }
+
+  String _activityLabelForRole(AppUserRole role, _AgendaVisitItem item) {
+    final String source = _slugifyName(
+      '${item.tipoActividadAgenda ?? ''} ${item.motivoKey} ${item.tratamiento}',
+    );
+    switch (role) {
+      case AppUserRole.directoraPrograma:
+      case AppUserRole.medico:
+        return 'Valoración clínica';
+      case AppUserRole.auxiliarEnfermeria:
+        if (source.contains('infusor')) {
+          return 'Cambio de infusor';
+        }
+        if (source.contains('tratamiento')) {
+          return 'Administración de tratamiento';
+        }
+        return 'Visita PAD';
+      case AppUserRole.auxiliarEnfermeriaClinicaHeridas:
+        return source.contains('curacion') ? 'Curación' : 'Clínica de heridas';
+      case AppUserRole.auxiliarAdministrativa:
+        return 'Seguimiento operativo';
+      case AppUserRole.admin:
+        return 'Actividad administrativa';
+    }
+  }
+
+  String _fallbackResponsibleActivity(_AgendaVisitItem item) {
+    final String tipoActividad = (item.tipoActividadAgenda ?? '').trim();
+    if (tipoActividad.isNotEmpty) {
+      return _AgendaFormatters.toSentenceCase(tipoActividad);
+    }
+    return 'Actividad por confirmar';
   }
 
   @override
@@ -146,22 +338,73 @@ class _AgendaScreenState extends State<AgendaScreen> {
     return _AgendaVisitItem(
       fecha: fecha,
       hora: item.hora,
-      paciente: item.patientDisplay,
+      paciente: item.patientDisplay.toUpperCase(),
       patientId: item.patientId,
       visitId: item.id,
       pendingId: null,
       edad: null,
       sexo: null,
       aseguradora: null,
-      dx: item.dx,
+      dx: DiagnosisTextFormatter.formatForAgenda(item.dx),
       tratamiento: item.tratamiento,
       barrio: item.barrio.isEmpty ? null : item.barrio,
       direccion: item.direccion,
       referencia: item.referencia.isEmpty ? null : item.referencia,
       contacto: item.contacto,
-      pendiente: item.estadoAgenda,
+      motivoKey: item.motivoKey,
+      detalleMotivo: item.detalleMotivo,
+      pendiente: _resolveVisibleAgendaStatus(item),
       personalAsignado: item.responsableNombre ?? '',
+      fechaProbableFinalizacion: item.fechaProbableFinalizacion,
+      pacienteCuentaConInfusor: item.pacienteCuentaConInfusor,
+      antibioticoCandidatoInfusor: item.antibioticoCandidatoInfusor,
+      antibioticoDetectado: item.antibioticoDetectado,
+      requiereCambioDiarioInfusor: item.requiereCambioDiarioInfusor,
+      programacionSugerida: item.programacionSugerida,
+      frecuenciaTratamiento: item.frecuenciaTratamiento,
+      frecuenciaTratamientoLabel: item.frecuenciaTratamientoLabel,
+      tipoActividadAgenda: item.tipoActividadAgenda,
+      verifiedLat: item.verifiedLat,
+      verifiedLng: item.verifiedLng,
     );
+  }
+
+  String _resolveVisibleAgendaStatus(AgendaEventRecord item) {
+    final String estado = item.estadoAgenda.trim().toLowerCase();
+    if (estado != 'programada') {
+      return item.estadoAgenda;
+    }
+
+    final bool alertaPrequirurgica48h =
+        item.motivoKey == 'programacion_procedimiento' &&
+        item.detalleMotivo['alertaPrequirurgica48h'] == true;
+    if (alertaPrequirurgica48h) {
+      return 'laboratorios prequirúrgicos pendientes';
+    }
+
+    final DateTime? scheduledAt = _combineEventDateAndHour(item.fecha, item.hora);
+    if (scheduledAt == null || !scheduledAt.isBefore(DateTime.now())) {
+      return item.estadoAgenda;
+    }
+
+    final Duration overdue = DateTime.now().difference(scheduledAt);
+    if (overdue >= const Duration(hours: 2)) {
+      return 'vencida sin cierre';
+    }
+    return 'pendiente de cierre';
+  }
+
+  DateTime? _combineEventDateAndHour(DateTime fecha, String hora) {
+    final List<String> parts = hora.trim().split(':');
+    if (parts.length != 2) {
+      return null;
+    }
+    final int? hour = int.tryParse(parts[0]);
+    final int? minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) {
+      return null;
+    }
+    return DateTime(fecha.year, fecha.month, fecha.day, hour, minute);
   }
 
   AgendaAssignableVisit _toAssignableVisit(_AgendaVisitItem item) {
@@ -181,8 +424,19 @@ class _AgendaScreenState extends State<AgendaScreen> {
       direccion: item.direccion,
       referencia: item.referencia,
       contacto: item.contacto,
+      motivoKey: item.motivoKey,
+      detalleMotivo: item.detalleMotivo,
       pendiente: item.pendiente,
       personalAsignado: item.personalAsignado,
+      fechaProbableFinalizacion: item.fechaProbableFinalizacion,
+      pacienteCuentaConInfusor: item.pacienteCuentaConInfusor,
+      antibioticoCandidatoInfusor: item.antibioticoCandidatoInfusor,
+      antibioticoDetectado: item.antibioticoDetectado,
+      requiereCambioDiarioInfusor: item.requiereCambioDiarioInfusor,
+      programacionSugerida: item.programacionSugerida,
+      frecuenciaTratamiento: item.frecuenciaTratamiento,
+      frecuenciaTratamientoLabel: item.frecuenciaTratamientoLabel,
+      tipoActividadAgenda: item.tipoActividadAgenda,
     );
   }
 
@@ -203,8 +457,19 @@ class _AgendaScreenState extends State<AgendaScreen> {
       direccion: item.direccion,
       referencia: item.referencia,
       contacto: item.contacto,
+      motivoKey: item.motivoKey,
+      detalleMotivo: item.detalleMotivo,
       pendiente: item.pendiente,
       personalAsignado: item.personalAsignado,
+      fechaProbableFinalizacion: item.fechaProbableFinalizacion,
+      pacienteCuentaConInfusor: item.pacienteCuentaConInfusor,
+      antibioticoCandidatoInfusor: item.antibioticoCandidatoInfusor,
+      antibioticoDetectado: item.antibioticoDetectado,
+      requiereCambioDiarioInfusor: item.requiereCambioDiarioInfusor,
+      programacionSugerida: item.programacionSugerida,
+      frecuenciaTratamiento: item.frecuenciaTratamiento,
+      frecuenciaTratamientoLabel: item.frecuenciaTratamientoLabel,
+      tipoActividadAgenda: item.tipoActividadAgenda,
     );
   }
 
@@ -269,21 +534,30 @@ class _AgendaScreenState extends State<AgendaScreen> {
   }
 
   List<_AgendaVisitItem> get _filteredVisits {
-    return _resolvedVisits.where((_AgendaVisitItem item) {
+    final List<_AgendaVisitItem> resolvedVisits = _resolvedVisits;
+    final String fecha = _fechaController.text.trim();
+    final DateTime? selectedDate = _tryParseDate(fecha);
+    final String selectedKey = selectedDate == null ? '' : _dateKey(selectedDate);
+    final List<_AgendaVisitItem> filtered = resolvedVisits.where((
+      _AgendaVisitItem item,
+    ) {
       final String query = _buscarController.text.trim().toLowerCase();
-      final String fecha = _fechaController.text.trim();
 
       final bool matchesQuery =
           query.isEmpty ||
           item.paciente.toLowerCase().contains(query) ||
           item.dx.toLowerCase().contains(query) ||
           item.tratamiento.toLowerCase().contains(query) ||
+          (item.tipoActividadAgenda ?? '').toLowerCase().contains(query) ||
+          (item.antibioticoDetectado ?? '').toLowerCase().contains(query) ||
           item.direccion.toLowerCase().contains(query) ||
           item.contacto.toLowerCase().contains(query) ||
           item.pendiente.toLowerCase().contains(query) ||
           item.personalAsignado.toLowerCase().contains(query);
 
-      final bool matchesFecha = fecha.isEmpty || item.fecha == fecha;
+      final DateTime? itemDate = _tryParseDate(item.fecha);
+      final String itemKey = itemDate == null ? '' : _dateKey(itemDate);
+      final bool matchesFecha = fecha.isEmpty || itemKey == selectedKey;
 
       final bool matchesLinkedIdentifiers =
           !_hasLinkedIdentifiers ||
@@ -318,6 +592,28 @@ class _AgendaScreenState extends State<AgendaScreen> {
         (_AgendaVisitItem a, _AgendaVisitItem b) =>
             _hourToInt(a.hora).compareTo(_hourToInt(b.hora)),
       );
+
+    final String resolvedPreview = resolvedVisits
+        .take(5)
+        .map(
+          (item) =>
+              '${item.visitId}|${item.patientId}|${item.paciente}|${item.fecha}|${item.hora}|${item.pendiente}|${item.personalAsignado}',
+        )
+        .join(' ; ');
+    final String filteredPreview = filtered
+        .take(5)
+        .map(
+          (item) =>
+              '${item.visitId}|${item.patientId}|${item.paciente}|${item.fecha}|${item.hora}|${item.pendiente}|${item.personalAsignado}',
+        )
+        .join(' ; ');
+    if (_debugAgendaLogs) {
+      debugPrint(
+        '[AgendaScreen] filtro fecha=$fecha query=${_buscarController.text.trim()} turno=$_turnoFiltro pendiente=$_pendienteFiltro personal=$_personalFiltro resolved=${resolvedVisits.length} filtered=${filtered.length}${resolvedPreview.isEmpty ? '' : ' resolvedPreview=$resolvedPreview'}${filteredPreview.isEmpty ? '' : ' filteredPreview=$filteredPreview'}',
+      );
+    }
+
+    return filtered;
   }
 
   List<_AgendaRowData> get _displayRows {
@@ -382,60 +678,49 @@ class _AgendaScreenState extends State<AgendaScreen> {
     final ThemeData theme = Theme.of(context);
     final bool isEmpty = _filteredVisits.isEmpty;
 
-    return Container(
-      color: const Color(0xFFF5F7FA),
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final double horizontalPadding =
-              constraints.maxWidth >= 900 ? 16 : 12;
-          final double topScrollOffset = constraints.maxWidth >= 900 ? 8 : 6;
-
-          return Padding(
-            padding: EdgeInsets.only(top: topScrollOffset),
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                10,
-                horizontalPadding,
-                24,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  ModuleHeader(
-                    title: constraints.maxWidth >= 1100
-                        ? 'Visitas asistenciales'
-                        : 'Agenda asistencial',
-                    subtitle:
-                        'Gestión de visitas, seguimiento operativo y control diario.',
-                  ),
-                  const SizedBox(height: 8),
-                  const AgendaSubnav(section: AgendaSubnavSection.visitas),
-                  const SizedBox(height: 10),
-                  _buildFiltersShell(),
-                  const SizedBox(height: 10),
-                  _buildSectionHeader(theme),
-                  const SizedBox(height: 6),
-                  if (isEmpty)
-                    _buildEmptyAgendaState(constraints)
-                  else if (constraints.maxWidth < 900)
-                    _buildMobileAgenda()
-                  else
-                    SizedBox(
-                      height: 620,
-                      child: _AgendaGrid(
-                        rows: _displayRows,
-                        emptyMessage: _hasLinkedIdentifiers
-                            ? 'No se encontró una visita asociada a este pendiente.'
-                            : 'No hay registros para mostrar.',
-                      ),
-                    ),
-                ],
-              ),
+    return HextPageShell(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const HextPageHeader(
+              title: 'Visitas',
+              subtitle:
+                  'Gestión de visitas, seguimiento operativo y control diario.',
+              tabs: AgendaSubnav(section: AgendaSubnavSection.visitas),
             ),
-          );
-        },
-      ),
+            _buildFiltersShell(),
+            const SizedBox(height: 10),
+            _buildSectionHeader(theme),
+            const SizedBox(height: 6),
+            if (isEmpty)
+              _buildEmptyAgendaState(constraints)
+            else if (constraints.maxWidth < 900)
+              _buildMobileAgenda()
+            else
+              SizedBox(
+                height: 620,
+                child: _AgendaGrid(
+                  rows: _displayRows,
+                  resolveResponsible: _buildResponsibleSummary,
+                  onEditLocation: _openEditLocationDialog,
+                  onVerifyLocation: _openSiteVerificationDialog,
+                  onOpenVerifiedMap: (_AgendaVisitItem item) {
+                    final double? lat = item.verifiedLat;
+                    final double? lng = item.verifiedLng;
+                    if (lat == null || lng == null) {
+                      return;
+                    }
+                    unawaited(_openVerifiedMap(lat, lng));
+                  },
+                  emptyMessage: _hasLinkedIdentifiers
+                      ? 'No se encontró una visita asociada a este pendiente.'
+                      : 'No hay registros para mostrar.',
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -631,7 +916,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
                 );
               },
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF17726D),
+                backgroundColor: HextColors.sidebar,
+                elevation: 0,
+                shadowColor: Colors.transparent,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
@@ -730,7 +1017,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           SegmentedButton<bool>(
             style: SegmentedButton.styleFrom(
               selectedForegroundColor: Colors.white,
-              selectedBackgroundColor: const Color(0xFF0F766E),
+              selectedBackgroundColor: HextColors.primary,
             ),
             segments: const <ButtonSegment<bool>>[
               ButtonSegment<bool>(
@@ -787,18 +1074,487 @@ class _AgendaScreenState extends State<AgendaScreen> {
     setState(() {
       _linkedFilterDismissed = true;
       _buscarController.clear();
-      _fechaController.clear();
+      _applyDefaultAgendaFilterDate();
       _turnoFiltro = 'Todos';
       _pendienteFiltro = 'Todos';
       _personalFiltro = 'Todos';
     });
   }
 
-  void _exportAgendaPdf() {
+  Future<void> _exportAgendaPdf() async {
     final String fileName = _buildAgendaPdfFileName();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Exportando: $fileName')));
+    final List<_AgendaVisitItem> visits = List<_AgendaVisitItem>.from(
+      _filteredVisits,
+    )..sort((a, b) => _hourToInt(a.hora).compareTo(_hourToInt(b.hora)));
+
+    if (visits.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay visitas para exportar.')),
+      );
+      return;
+    }
+
+    try {
+      final pw.Document document = pw.Document();
+      final DateTime exportDate =
+          _tryParseDate(_fechaController.text) ?? DateTime.now();
+      final List<_AgendaPdfRow> rows = visits
+          .asMap()
+          .entries
+          .map(
+            (entry) {
+              final int index = entry.key;
+              final _AgendaVisitItem item = entry.value;
+              return _AgendaPdfRow(
+                orden: '${index + 1}.',
+                hora: item.hora.trim(),
+                paciente: _AgendaFormatters.splitPaciente(item.paciente).nombre,
+                tratamiento: _buildPdfTreatmentTitle(item),
+                actividad: _buildPdfActivity(item),
+                barrio: ((item.barrio ?? '').trim()).toUpperCase(),
+                direccion: _buildPdfAddressLine(item),
+                referencia: _buildPdfReference(item),
+                contacto: _buildPdfContactNumbers(item.contacto),
+                responsable: _buildResponsibleSummary(item).displayName,
+                responsableRol: _buildPdfResponsibleRole(item),
+                estado: _buildPdfStatus(item),
+              );
+            },
+          )
+          .toList();
+
+      document.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4.landscape,
+          margin: const pw.EdgeInsets.fromLTRB(22, 20, 22, 20),
+          build: (pw.Context context) => <pw.Widget>[
+            _buildAgendaPdfHeader(
+              exportDate: exportDate,
+              fileName: fileName,
+              total: rows.length,
+            ),
+            pw.SizedBox(height: 10),
+            _buildAgendaPdfTable(rows),
+          ],
+        ),
+      );
+
+      await Printing.layoutPdf(
+        name: fileName,
+        onLayout: (PdfPageFormat format) async => document.save(),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No fue posible exportar el PDF: $error')),
+      );
+    }
+  }
+
+  String _buildPdfTreatmentTitle(_AgendaVisitItem item) {
+    if (item.motivoKey == 'programacion_procedimiento') {
+      final String procedureName = _readPdfProcedureName(item);
+      if (procedureName.isNotEmpty) {
+        return procedureName.toUpperCase();
+      }
+      return 'PROCEDIMIENTO QUIRURGICO';
+    }
+
+    return _formatTreatmentDisplay(item).mainLine;
+  }
+
+  String _buildPdfActivity(_AgendaVisitItem item) {
+    if (item.motivoKey == 'programacion_procedimiento') {
+      final String tipoActividad =
+          _AgendaFormatters.toSentenceCase(item.tipoActividadAgenda ?? '');
+      return tipoActividad.isEmpty ? 'Actividad programada' : tipoActividad;
+    }
+
+    final TreatmentDisplayData display = _formatTreatmentDisplay(item);
+    final List<String> lines = <String>[];
+
+    if ((display.frequencyLine ?? '').trim().isNotEmpty) {
+      lines.add(display.frequencyLine!.trim());
+    }
+
+    if ((display.infusorLine ?? '').trim().isNotEmpty) {
+      lines.add(display.infusorLine!.trim());
+    }
+
+    if (lines.isNotEmpty) {
+      return lines.join('\n');
+    }
+
+    final String tipoActividad =
+        _AgendaFormatters.toSentenceCase(item.tipoActividadAgenda ?? '');
+    if (tipoActividad.isNotEmpty) {
+      return tipoActividad;
+    }
+
+    if (item.requiereCambioDiarioInfusor) {
+      return 'c/24 h\nInfusor: Sí';
+    }
+
+    return 'Actividad programada';
+  }
+
+  TreatmentDisplayData _formatTreatmentDisplay(_AgendaVisitItem item) {
+    final List<String> tokens = _AgendaFormatters.splitTreatmentTokens(
+      item.tratamiento,
+      antibioticoDetectado: item.antibioticoDetectado,
+    );
+
+    return TreatmentTextFormatter.formatTreatment(<String, dynamic>{
+      'nombreTratamiento': tokens.isNotEmpty ? tokens.first : item.tratamiento,
+      'frecuencia': item.frecuenciaTratamientoLabel ?? item.frecuenciaTratamiento,
+      'pacienteCuentaConInfusor': item.pacienteCuentaConInfusor,
+    });
+  }
+
+  String _readPdfProcedureName(_AgendaVisitItem item) {
+    final List<dynamic> candidates = <dynamic>[
+      item.detalleMotivo['nombreProcedimiento'],
+      item.detalleMotivo['procedimientoRequerido'],
+      item.detalleMotivo['procedimientoProgramado'],
+      item.tratamiento,
+    ];
+    for (final dynamic candidate in candidates) {
+      final String value = (candidate ?? '').toString().trim();
+      if (value.isNotEmpty) {
+        return value;
+      }
+    }
+    return '';
+  }
+
+  String _buildPdfAddressLine(_AgendaVisitItem item) {
+    final String direccion = item.direccion.trim();
+    if (direccion.isEmpty) {
+      return 'Ubicación pendiente';
+    }
+    return _AgendaFormatters.toTitleCase(direccion);
+  }
+
+  String _buildPdfReference(_AgendaVisitItem item) {
+    final String referencia = (item.referencia ?? '').trim();
+    if (referencia.isEmpty) {
+      return 'Sin referencia';
+    }
+    return 'Ref: ${_AgendaFormatters.toTitleCase(referencia)}';
+  }
+
+  String _buildPdfResponsibleRole(_AgendaVisitItem item) {
+    final _ResponsibleSummary summary = _buildResponsibleSummary(item);
+    switch (summary.roleLabel) {
+      case 'Auxiliar de enfermería':
+        return 'Aux. enfermería';
+      case 'Coordinación operativa':
+        return 'Coord. operativa';
+      case 'Directora del programa':
+        return 'Dir. programa';
+      case 'Clínica de heridas':
+        return 'Clínica heridas';
+      case 'Administrador':
+        return 'Administrador';
+      case 'Médico':
+        return 'Médico';
+      default:
+        return summary.roleLabel;
+    }
+  }
+
+  String _buildPdfStatus(_AgendaVisitItem item) {
+    final String pendiente = item.pendiente.trim();
+    if (pendiente.isNotEmpty) {
+      return _AgendaFormatters.toSentenceCase(pendiente);
+    }
+    if (item.personalAsignado.trim().isNotEmpty) {
+      return 'Asignada';
+    }
+    return 'Pendiente';
+  }
+
+  String _buildPdfContactNumbers(String rawContact) {
+    final List<String> entries = rawContact
+        .split('|')
+        .map(_AgendaFormatters.normalizeSpace)
+        .where((String item) => item.isNotEmpty)
+        .toList();
+    final List<String> numbers = <String>[];
+
+    for (final String entry in entries) {
+      final List<String> parts = entry
+          .split('·')
+          .map(_AgendaFormatters.normalizeSpace)
+          .where((String item) => item.isNotEmpty)
+          .toList();
+      for (final String part in parts) {
+        final String digits = part.replaceAll(RegExp(r'\D'), '');
+        if (digits.length >= 7 && !numbers.contains(digits)) {
+          numbers.add(digits);
+        }
+      }
+    }
+
+    if (numbers.isEmpty) {
+      return 'Sin contacto';
+    }
+
+    return 'Tel:\n${numbers.join('\n')}';
+  }
+
+  pw.Widget _buildAgendaPdfHeader({
+    required DateTime exportDate,
+    required String fileName,
+    required int total,
+  }) {
+    final String day = exportDate.day.toString().padLeft(2, '0');
+    final String month = exportDate.month.toString().padLeft(2, '0');
+    final String year = exportDate.year.toString();
+    final String search = _buscarController.text.trim();
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: <pw.Widget>[
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: <pw.Widget>[
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: <pw.Widget>[
+                pw.Text(
+                  'HEXT · AGENDA DE VISITAS',
+                  style: pw.TextStyle(
+                    fontSize: 15,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.teal800,
+                  ),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'Fecha operativa: $day/$month/$year',
+                  style: const pw.TextStyle(fontSize: 9),
+                ),
+                pw.SizedBox(height: 1),
+                pw.Text(
+                  'Total: $total ${total == 1 ? 'visita' : 'visitas'}',
+                  style: const pw.TextStyle(fontSize: 8.5),
+                ),
+                if (search.isNotEmpty)
+                  pw.Text(
+                    'Filtro: $search',
+                    style: const pw.TextStyle(fontSize: 8.5),
+                  ),
+              ],
+            ),
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: <pw.Widget>[
+                pw.Text(
+                  '$total visitas',
+                  style: pw.TextStyle(
+                    fontSize: 9,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  fileName,
+                  style: const pw.TextStyle(fontSize: 7.5),
+                ),
+              ],
+            ),
+          ],
+        ),
+        pw.SizedBox(height: 6),
+        pw.Container(height: 1.2, color: PdfColors.grey400),
+      ],
+    );
+  }
+
+  pw.Widget _buildAgendaPdfTable(List<_AgendaPdfRow> rows) {
+    const pw.TextStyle headerStyle = pw.TextStyle(
+      fontSize: 7.4,
+      color: PdfColors.white,
+    );
+    const pw.TextStyle bodyStyle = pw.TextStyle(
+      fontSize: 7.3,
+      lineSpacing: 0.15,
+    );
+    const double tableWidth = 760;
+
+    return pw.Align(
+      alignment: pw.Alignment.centerLeft,
+      child: pw.SizedBox(
+        width: tableWidth,
+        child: pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.35),
+          columnWidths: <int, pw.TableColumnWidth>{
+            0: const pw.FixedColumnWidth(20),
+            1: const pw.FixedColumnWidth(38),
+            2: const pw.FixedColumnWidth(95),
+            3: const pw.FixedColumnWidth(120),
+            4: const pw.FixedColumnWidth(68),
+            5: const pw.FixedColumnWidth(95),
+            6: const pw.FixedColumnWidth(110),
+            7: const pw.FixedColumnWidth(65),
+            8: const pw.FixedColumnWidth(94),
+            9: const pw.FixedColumnWidth(55),
+          },
+          children: <pw.TableRow>[
+            pw.TableRow(
+              decoration: const pw.BoxDecoration(color: PdfColors.teal700),
+              children: <pw.Widget>[
+                _buildPdfHeaderCell('#', headerStyle),
+                _buildPdfHeaderCell('Hora', headerStyle),
+                _buildPdfHeaderCell('Paciente', headerStyle),
+                _buildPdfHeaderCell('Tratamiento / actividad', headerStyle),
+                _buildPdfHeaderCell('Barrio', headerStyle),
+                _buildPdfHeaderCell('Dirección', headerStyle),
+                _buildPdfHeaderCell('Punto de referencia', headerStyle),
+                _buildPdfHeaderCell('Contacto', headerStyle),
+                _buildPdfHeaderCell('Responsable', headerStyle),
+                _buildPdfHeaderCell('Estado', headerStyle),
+              ],
+            ),
+            ...rows.asMap().entries.map((entry) {
+              final int index = entry.key;
+              final _AgendaPdfRow row = entry.value;
+              final PdfColor background = index.isEven
+                  ? PdfColors.white
+                  : PdfColors.grey50;
+              return pw.TableRow(
+                decoration: pw.BoxDecoration(color: background),
+                verticalAlignment: pw.TableCellVerticalAlignment.top,
+                children: <pw.Widget>[
+                  _buildPdfCell(
+                    row.orden,
+                    bodyStyle,
+                    align: pw.TextAlign.center,
+                    verticalPadding: 3,
+                  ),
+                  _buildPdfCell(
+                    row.hora,
+                    bodyStyle.copyWith(fontWeight: pw.FontWeight.bold),
+                    align: pw.TextAlign.center,
+                    verticalPadding: 3,
+                  ),
+                  _buildPdfCell(
+                    row.paciente,
+                    bodyStyle.copyWith(fontWeight: pw.FontWeight.bold),
+                    maxLines: 2,
+                    verticalPadding: 3,
+                  ),
+                  _buildPdfTreatmentCell(row, bodyStyle),
+                  _buildPdfCell(
+                    row.barrio,
+                    bodyStyle.copyWith(fontWeight: pw.FontWeight.bold),
+                    maxLines: 2,
+                    verticalPadding: 3,
+                  ),
+                  _buildPdfCell(
+                    row.direccion,
+                    bodyStyle,
+                    maxLines: 2,
+                    verticalPadding: 3,
+                  ),
+                  _buildPdfCell(
+                    row.referencia,
+                    bodyStyle,
+                    maxLines: 2,
+                    verticalPadding: 3,
+                  ),
+                  _buildPdfCell(
+                    row.contacto,
+                    bodyStyle,
+                    maxLines: 4,
+                    verticalPadding: 3,
+                  ),
+                  _buildPdfResponsibleCell(row, bodyStyle),
+                  _buildPdfCell(
+                    row.estado,
+                    bodyStyle,
+                    maxLines: 2,
+                    verticalPadding: 3,
+                  ),
+                ],
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  pw.Widget _buildPdfHeaderCell(String text, pw.TextStyle style) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: pw.Text(text, style: style, maxLines: 2),
+    );
+  }
+
+  pw.Widget _buildPdfTreatmentCell(_AgendaPdfRow row, pw.TextStyle bodyStyle) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        mainAxisSize: pw.MainAxisSize.min,
+        children: <pw.Widget>[
+          pw.Text(
+            row.tratamiento,
+            style: bodyStyle.copyWith(fontWeight: pw.FontWeight.bold),
+            maxLines: 2,
+          ),
+          if (row.actividad.trim().isNotEmpty) ...<pw.Widget>[
+            pw.SizedBox(height: 1),
+            pw.Text(
+              row.actividad,
+              style: bodyStyle,
+              maxLines: 3,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildPdfResponsibleCell(_AgendaPdfRow row, pw.TextStyle bodyStyle) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        mainAxisSize: pw.MainAxisSize.min,
+        children: <pw.Widget>[
+          pw.Text(
+            row.responsable,
+            style: bodyStyle.copyWith(fontWeight: pw.FontWeight.bold),
+            maxLines: 2,
+          ),
+          if (row.responsableRol.trim().isNotEmpty) ...<pw.Widget>[
+            pw.SizedBox(height: 1),
+            pw.Text(
+              row.responsableRol,
+              style: bodyStyle,
+              maxLines: 1,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildPdfCell(
+    String text,
+    pw.TextStyle style, {
+    pw.TextAlign align = pw.TextAlign.left,
+    int maxLines = 2,
+    double verticalPadding = 4,
+  }) {
+    return pw.Padding(
+      padding: pw.EdgeInsets.symmetric(horizontal: 4, vertical: verticalPadding),
+      child: pw.Text(text, style: style, textAlign: align, maxLines: maxLines),
+    );
   }
 
   String _buildAgendaPdfFileName() {
@@ -809,12 +1565,23 @@ class _AgendaScreenState extends State<AgendaScreen> {
     final String year = date.year.toString();
     final String dateToken = '$day-$month-$year';
 
-    final String nameToken = _slugifyName(_buscarController.text);
-    if (nameToken.isEmpty) {
-      return 'Agenda_$dateToken.pdf';
-    }
+    final bool includesAll =
+        (_personalFiltro == null || _personalFiltro == 'Todos');
+    final String? responsibleName = includesAll ? null : _personalFiltro;
+    final String suffix = includesAll
+        ? 'GENERAL'
+        : _normalizeAgendaPdfFileToken(responsibleName ?? 'GENERAL');
 
-    return 'Agenda_${dateToken}_$nameToken.pdf';
+    return 'Agenda_${dateToken}_$suffix.pdf';
+  }
+
+  String _normalizeAgendaPdfFileToken(String input) {
+    final String normalized = _stripAccents(input)
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    return normalized.isEmpty ? 'GENERAL' : normalized;
   }
 
   String _slugifyName(String input, {int maxLength = 40}) {
@@ -1033,12 +1800,22 @@ class _AgendaScreenState extends State<AgendaScreen> {
               children: items.map((_AgendaVisitItem item) {
                 return _MobileVisitCard(
                   item: item,
+                  responsibleSummary: _buildResponsibleSummary(item),
                   state: _stateFor(item),
                   collapsed: collapsedStyle,
                   onStateTap: (_VisitFlowState next) =>
                       _updateVisitState(item: item, nextState: next),
                   onOpenMap: () => _openMap(item.direccion),
                   onPingLocation: () => _pingLocation(item),
+                  onEditLocation: () => _openEditLocationDialog(item),
+                  onVerifyLocation: () => _openSiteVerificationDialog(item),
+                  onOpenVerifiedMap:
+                      item.verifiedLat != null && item.verifiedLng != null
+                          ? () => _openVerifiedMap(
+                                item.verifiedLat!,
+                                item.verifiedLng!,
+                              )
+                          : null,
                 );
               }).toList(),
             ),
@@ -1095,6 +1872,169 @@ class _AgendaScreenState extends State<AgendaScreen> {
         locationSnapshot: item.direccion,
       );
     });
+  }
+
+  Future<void> _openEditLocationDialog(_AgendaVisitItem item) async {
+    final String patientId = (item.patientId ?? '').trim();
+    if (patientId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No fue posible identificar al paciente.')),
+      );
+      return;
+    }
+    try {
+      debugPrint('OPEN_EDIT_LOCATION patientId=$patientId');
+      final Map<String, dynamic> initialData = await _agendaRepo
+          .fetchPatientLocation(patientId);
+      if (!mounted) return;
+
+      final _PatientLocationPayload? payload =
+          await showDialog<_PatientLocationPayload>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _EditLocationDialog(
+          patientName: item.paciente,
+          initialData: initialData,
+        ),
+      );
+      if (payload == null) {
+        return;
+      }
+
+      await _agendaRepo.updatePatientLocation(
+        patientId: patientId,
+        eventId: item.visitId,
+        ubicacion: payload.toFirestoreMap(),
+        updatedByRole: 'auxiliar_enfermeria',
+      );
+      await _refreshPatientLocation(patientId);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ubicación y contactos actualizados correctamente.'),
+        ),
+      );
+    } catch (error) {
+      debugPrint(
+        '[AgendaScreen._openEditLocationDialog] patientId=$patientId error=$error',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No fue posible guardar la ubicación y contactos.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openSiteVerificationDialog(_AgendaVisitItem item) async {
+    final String patientId = (item.patientId ?? '').trim();
+    if (patientId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No fue posible identificar al paciente.')),
+      );
+      return;
+    }
+    try {
+      debugPrint('OPEN_VERIFY_LOCATION patientId=$patientId');
+      final Map<String, dynamic> initialData = await _agendaRepo
+          .fetchPatientLocation(patientId);
+      if (!mounted) return;
+
+      final _SiteVerificationPayload? payload =
+          await showDialog<_SiteVerificationPayload>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _VerifyLocationDialog(
+          patientName: item.paciente,
+          initialData: initialData,
+        ),
+      );
+      if (payload == null) {
+        return;
+      }
+
+      await _agendaRepo.updatePatientSiteVerification(
+        patientId: patientId,
+        eventId: item.visitId,
+        verification: payload.toFirestoreMap(),
+        updatedBy: 'auxiliar_enfermeria',
+      );
+      await _refreshPatientLocation(patientId);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verificación en sitio guardada.')),
+      );
+    } catch (error) {
+      debugPrint(
+        '[AgendaScreen._openSiteVerificationDialog] patientId=$patientId error=$error',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No fue posible guardar la verificación en sitio.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _refreshPatientLocation(String patientId) async {
+    final Map<String, dynamic> updatedLocation = await _agendaRepo
+        .fetchPatientLocation(patientId);
+    if (!mounted) return;
+
+    final String contactSummary = (updatedLocation['contacto'] ?? '')
+        .toString()
+        .trim();
+    final String direccion = (updatedLocation['direccion'] ?? '')
+        .toString()
+        .trim();
+    final String referencia = (updatedLocation['referencia'] ?? '')
+        .toString()
+        .trim();
+    final String barrio = (updatedLocation['barrio'] ?? '').toString().trim();
+    final double? verifiedLat = _readDouble(updatedLocation['lat']);
+    final double? verifiedLng = _readDouble(updatedLocation['lng']);
+    setState(() {
+      _allEvents = _allEvents.map((event) {
+        if (event.patientId.trim() != patientId) {
+          return event;
+        }
+        return event.copyWith(
+          direccion: direccion.isNotEmpty ? direccion : event.direccion,
+          barrio: barrio.isNotEmpty ? barrio : event.barrio,
+          referencia: referencia.isNotEmpty ? referencia : event.referencia,
+          contacto: contactSummary.isEmpty ? event.contacto : contactSummary,
+          verifiedLat: verifiedLat,
+          verifiedLng: verifiedLng,
+        );
+      }).toList();
+    });
+  }
+
+  double? _readDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    if (value == null) {
+      return null;
+    }
+    return double.tryParse(value.toString().trim());
+  }
+
+  Future<void> _openVerifiedMap(double lat, double lng) async {
+    final Uri uri = Uri.parse('https://www.google.com/maps?q=$lat,$lng');
+    final bool opened = await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No fue posible abrir Google Maps.')),
+      );
+    }
   }
 
   Widget _buildOperationLivePanel({
@@ -1321,8 +2261,19 @@ class _AgendaScreenState extends State<AgendaScreen> {
 class _AgendaGrid extends StatelessWidget {
   final List<_AgendaRowData> rows;
   final String emptyMessage;
+  final _ResponsibleSummary Function(_AgendaVisitItem item) resolveResponsible;
+  final ValueChanged<_AgendaVisitItem> onEditLocation;
+  final ValueChanged<_AgendaVisitItem> onVerifyLocation;
+  final ValueChanged<_AgendaVisitItem> onOpenVerifiedMap;
 
-  const _AgendaGrid({required this.rows, required this.emptyMessage});
+  const _AgendaGrid({
+    required this.rows,
+    required this.emptyMessage,
+    required this.resolveResponsible,
+    required this.onEditLocation,
+    required this.onVerifyLocation,
+    required this.onOpenVerifiedMap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1388,7 +2339,13 @@ class _AgendaGrid extends StatelessWidget {
                         color: Color(0xFFE7ECF1),
                       ),
                       itemBuilder: (BuildContext context, int index) {
-                        return _AgendaTableRow(row: rows[index]);
+                        return _AgendaTableRow(
+                          row: rows[index],
+                          resolveResponsible: resolveResponsible,
+                          onEditLocation: onEditLocation,
+                          onVerifyLocation: onVerifyLocation,
+                          onOpenVerifiedMap: onOpenVerifiedMap,
+                        );
                       },
                     ),
                   ),
@@ -1431,8 +2388,18 @@ class _AgendaTableHeader extends StatelessWidget {
 
 class _AgendaTableRow extends StatelessWidget {
   final _AgendaRowData row;
+  final _ResponsibleSummary Function(_AgendaVisitItem item) resolveResponsible;
+  final ValueChanged<_AgendaVisitItem> onEditLocation;
+  final ValueChanged<_AgendaVisitItem> onVerifyLocation;
+  final ValueChanged<_AgendaVisitItem> onOpenVerifiedMap;
 
-  const _AgendaTableRow({required this.row});
+  const _AgendaTableRow({
+    required this.row,
+    required this.resolveResponsible,
+    required this.onEditLocation,
+    required this.onVerifyLocation,
+    required this.onOpenVerifiedMap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1468,15 +2435,12 @@ class _AgendaTableRow extends StatelessWidget {
                   ),
             width: _AgendaTableMetrics.dx,
           ),
-          _BodyCell(
-            text: isEmpty
-                ? ''
-                : _AgendaFormatters.summarizeTreatment(
-                    item.tratamiento,
-                    fallback: 'Sin actividad',
-                  ),
-            width: _AgendaTableMetrics.tratamiento,
-          ),
+          isEmpty
+              ? _BodyCell(text: '', width: _AgendaTableMetrics.tratamiento)
+              : _CustomBodyCell(
+                  width: _AgendaTableMetrics.tratamiento,
+                  child: _AgendaTreatmentCell(item: item),
+                ),
           isEmpty
               ? _BodyCell(text: '', width: _AgendaTableMetrics.direccion)
               : _CustomBodyCell(
@@ -1485,27 +2449,38 @@ class _AgendaTableRow extends StatelessWidget {
                     barrio: item.barrio,
                     direccion: item.direccion,
                     referencia: item.referencia,
+                    onEditLocation: () => onEditLocation(item),
+                    onVerifyLocation: () => onVerifyLocation(item),
+                    hasVerifiedCoordinates:
+                        item.verifiedLat != null && item.verifiedLng != null,
+                    onOpenVerifiedMap:
+                        item.verifiedLat != null && item.verifiedLng != null
+                            ? () => onOpenVerifiedMap(item)
+                            : null,
                   ),
                 ),
-          _BodyCell(
-            text: isEmpty
-                ? ''
-                : _AgendaFormatters.formatContact(
-                    item.contacto,
-                    fallback: '--',
+          isEmpty
+              ? const _BodyCell(
+                  text: '',
+                  width: _AgendaTableMetrics.contacto,
+                )
+              : _CustomBodyCell(
+                  width: _AgendaTableMetrics.contacto,
+                  child: _ContactBlock(contacto: item.contacto),
+                ),
+          isEmpty
+              ? const _BodyCell(
+                  text: '',
+                  width: _AgendaTableMetrics.personalAsignado,
+                  isLast: true,
+                )
+              : _CustomBodyCell(
+                  width: _AgendaTableMetrics.personalAsignado,
+                  child: _ResponsibleBlock(
+                    summary: resolveResponsible(item),
+                    compact: true,
                   ),
-            width: _AgendaTableMetrics.contacto,
-          ),
-          _BodyCell(
-            text: isEmpty
-                ? ''
-                : _AgendaFormatters.toTitleCase(
-                    item.personalAsignado,
-                    fallback: '--',
-                  ),
-            width: _AgendaTableMetrics.personalAsignado,
-            isLast: true,
-          ),
+                ),
         ],
       ),
     );
@@ -1515,7 +2490,9 @@ class _AgendaTableRow extends StatelessWidget {
 class _AgendaPatientCell extends StatelessWidget {
   final _AgendaVisitItem item;
 
-  const _AgendaPatientCell({required this.item});
+  const _AgendaPatientCell({
+    required this.item,
+  });
 
   String _statusLabel() {
     final String pendiente = item.pendiente.trim();
@@ -1527,7 +2504,7 @@ class _AgendaPatientCell extends StatelessWidget {
     if (responsable.isNotEmpty) {
       return 'Visita asignada';
     }
-    return 'Visita programada';
+    return 'Asignación pendiente';
   }
 
   Color _statusColor() {
@@ -1540,7 +2517,7 @@ class _AgendaPatientCell extends StatelessWidget {
     if (responsable.isNotEmpty) {
       return const Color(0xFF17726D);
     }
-    return const Color(0xFF2F6FA3);
+    return const Color(0xFF9A6700);
   }
 
   String _metaLine() {
@@ -1556,7 +2533,7 @@ class _AgendaPatientCell extends StatelessWidget {
       parts.add(item.aseguradora!.trim());
     }
 
-    return parts.isEmpty ? '--' : parts.join(' · ');
+    return parts.join(' · ');
   }
 
   @override
@@ -1567,15 +2544,22 @@ class _AgendaPatientCell extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(
-          parts.nombre,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF243247),
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                parts.nombre,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF243247),
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 3),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
@@ -1603,18 +2587,304 @@ class _AgendaPatientCell extends StatelessWidget {
           ],
         ),
         if (parts.identificacion.isNotEmpty) ...<Widget>[
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             parts.identificacion,
             style: const TextStyle(fontSize: 13.5, color: Color(0xFF748096)),
           ),
         ],
-        const SizedBox(height: 6),
-        Text(
-          _metaLine(),
-          style: const TextStyle(fontSize: 13, color: Color(0xFF8A94A6)),
-        ),
+        if (_metaLine().isNotEmpty) ...<Widget>[
+          const SizedBox(height: 5),
+          Text(
+            _metaLine(),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF8A94A6)),
+          ),
+        ],
       ],
+    );
+  }
+}
+
+class _AgendaTreatmentCell extends StatelessWidget {
+  static const int _maxVisibleTreatments = 2;
+
+  const _AgendaTreatmentCell({required this.item});
+
+  final _AgendaVisitItem item;
+
+  bool get _isProcedureEvent => item.motivoKey == 'programacion_procedimiento';
+
+  String _readDetalleTrimmed(List<dynamic> candidates) {
+    for (final dynamic candidate in candidates) {
+      final String value = (candidate ?? '').toString().trim();
+      if (value.isNotEmpty) {
+        return value;
+      }
+    }
+    return '';
+  }
+
+  List<String> _readDetalleList(List<dynamic> candidates) {
+    for (final dynamic candidate in candidates) {
+      if (candidate is List) {
+        final List<String> values = candidate
+            .map((dynamic value) => value.toString().trim())
+            .where((String value) => value.isNotEmpty)
+            .toList();
+        if (values.isNotEmpty) {
+          return values;
+        }
+      }
+      final String value = (candidate ?? '').toString().trim();
+      if (value.isNotEmpty) {
+        final List<String> values = value
+            .split(RegExp(r'[\n,;]+'))
+            .map((String part) => part.trim())
+            .where((String part) => part.isNotEmpty)
+            .toList();
+        if (values.isNotEmpty) {
+          return values;
+        }
+      }
+    }
+    return <String>[];
+  }
+
+  String _procedureName() {
+    return _readDetalleTrimmed(<dynamic>[
+      item.detalleMotivo['nombreProcedimiento'],
+      item.detalleMotivo['procedimientoRequerido'],
+      item.detalleMotivo['procedimientoProgramado'],
+      item.tratamiento,
+    ]);
+  }
+
+  String? _procedureAnesthesiologyChip() {
+    final String requiere = _readDetalleTrimmed(<dynamic>[
+      item.detalleMotivo['requiereAnestesiologia'],
+    ]).toLowerCase();
+    final String realizada = _readDetalleTrimmed(<dynamic>[
+      item.detalleMotivo['anestesiologiaRealizada'],
+    ]).toLowerCase();
+
+    if (requiere == 'por_confirmar' || realizada == 'por_confirmar') {
+      return 'Anestesiologia por confirmar';
+    }
+    if (requiere == 'si' && realizada == 'si') {
+      return 'Anestesiologia valorada';
+    }
+    if (requiere == 'si' && realizada != 'si') {
+      return 'Anestesiologia pendiente';
+    }
+    return null;
+  }
+
+  List<String> _procedurePendingEvaluationChips() {
+    final List<String> values = _readDetalleList(<dynamic>[
+      item.detalleMotivo['valoracionesPendientes'],
+    ]);
+    final Set<String> seen = <String>{};
+    final List<String> normalized = <String>[];
+    for (final String value in values) {
+      final String label = _AgendaFormatters.toTitleCase(value);
+      final String key = label.toLowerCase();
+      if (label.isEmpty || key.contains('anestesiolog') || !seen.add(key)) {
+        continue;
+      }
+      normalized.add(label);
+    }
+    return normalized;
+  }
+
+  List<String> _procedureChips() {
+    return <String>[
+      ...?(() {
+        final String? chip = _procedureAnesthesiologyChip();
+        return chip == null ? null : <String>[chip];
+      })(),
+      ..._procedurePendingEvaluationChips(),
+    ];
+  }
+
+  List<_AgendaTreatmentEntry> _treatmentEntries() {
+    if (_isProcedureEvent) {
+      return <_AgendaTreatmentEntry>[
+        _AgendaTreatmentEntry(
+          title: 'PROCEDIMIENTO QUIRURGICO',
+          secondaryLines: <String>[
+            _procedureName().isEmpty
+                ? 'Procedimiento sin nombre registrado'
+                : _procedureName(),
+          ],
+          chips: _procedureChips(),
+        ),
+      ];
+    }
+
+    final List<String> tokens = _AgendaFormatters.splitTreatmentTokens(
+      item.tratamiento,
+      antibioticoDetectado: item.antibioticoDetectado,
+    );
+
+    if (tokens.isEmpty) {
+      final TreatmentDisplayData display = TreatmentTextFormatter.formatTreatment(
+        <String, dynamic>{
+          'nombreTratamiento': item.tratamiento,
+          'frecuencia':
+              item.frecuenciaTratamientoLabel ?? item.frecuenciaTratamiento,
+          'pacienteCuentaConInfusor': item.pacienteCuentaConInfusor,
+        },
+      );
+      return <_AgendaTreatmentEntry>[
+        _AgendaTreatmentEntry(
+          title: display.mainLine,
+          secondaryLines: <String>[
+            if ((display.frequencyLine ?? '').trim().isNotEmpty)
+              display.frequencyLine!,
+            if ((display.infusorLine ?? '').trim().isNotEmpty)
+              display.infusorLine!,
+          ],
+          chips: const <String>[],
+        ),
+      ];
+    }
+
+    return tokens
+        .map(
+          (String token) {
+            final TreatmentDisplayData display = TreatmentTextFormatter
+                .formatTreatment(<String, dynamic>{
+              'nombreTratamiento': token,
+              'frecuencia':
+                  item.frecuenciaTratamientoLabel ?? item.frecuenciaTratamiento,
+              'pacienteCuentaConInfusor': item.pacienteCuentaConInfusor,
+            });
+            return _AgendaTreatmentEntry(
+              title: display.mainLine,
+              secondaryLines: <String>[
+                if ((display.frequencyLine ?? '').trim().isNotEmpty)
+                  display.frequencyLine!,
+                if ((display.infusorLine ?? '').trim().isNotEmpty)
+                  display.infusorLine!,
+              ],
+              chips: const <String>[],
+            );
+          },
+        )
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<_AgendaTreatmentEntry> entries = _treatmentEntries();
+    final List<_AgendaTreatmentEntry> visible = entries.take(
+      _maxVisibleTreatments,
+    ).toList();
+    final int hiddenCount = entries.length - visible.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        for (int index = 0; index < visible.length; index++) ...<Widget>[
+          if (index > 0) const SizedBox(height: 10),
+          Text(
+            visible[index].title,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              height: 1.2,
+              color: Color(0xFF243247),
+            ),
+          ),
+          for (int lineIndex = 0;
+              lineIndex < visible[index].secondaryLines.length;
+              lineIndex++) ...<Widget>[
+            const SizedBox(height: 2),
+            Text(
+              visible[index].secondaryLines[lineIndex],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: lineIndex == 0 ? 12 : 11.5,
+                height: 1.2,
+                color: lineIndex == 0
+                    ? const Color(0xFF5B6474)
+                    : const Color(0xFF667085),
+              ),
+            ),
+          ],
+          if (visible[index].chips.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: visible[index].chips
+                  .map(
+                    (String chip) => _AgendaMetaChip(
+                      label: chip,
+                      backgroundColor: const Color(0xFFF3F4F6),
+                      textColor: const Color(0xFF4B5563),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ],
+        if (hiddenCount > 0) ...<Widget>[
+          const SizedBox(height: 8),
+          Text(
+            '+$hiddenCount tratamientos mas',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF6B7280),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _AgendaTreatmentEntry {
+  final String title;
+  final List<String> secondaryLines;
+  final List<String> chips;
+
+  const _AgendaTreatmentEntry({
+    required this.title,
+    required this.secondaryLines,
+    required this.chips,
+  });
+}
+
+class _AgendaMetaChip extends StatelessWidget {
+  const _AgendaMetaChip({
+    required this.label,
+    required this.backgroundColor,
+    required this.textColor,
+  });
+
+  final String label;
+  final Color backgroundColor;
+  final Color textColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w600,
+          color: textColor,
+        ),
+      ),
     );
   }
 }
@@ -1635,8 +2905,21 @@ class _AgendaVisitItem {
   final String direccion;
   final String? referencia;
   final String contacto;
+  final String motivoKey;
+  final Map<String, dynamic> detalleMotivo;
   final String pendiente;
   final String personalAsignado;
+  final DateTime? fechaProbableFinalizacion;
+  final String? pacienteCuentaConInfusor;
+  final bool antibioticoCandidatoInfusor;
+  final String? antibioticoDetectado;
+  final bool requiereCambioDiarioInfusor;
+  final String? programacionSugerida;
+  final String? frecuenciaTratamiento;
+  final String? frecuenciaTratamientoLabel;
+  final String? tipoActividadAgenda;
+  final double? verifiedLat;
+  final double? verifiedLng;
 
   _AgendaVisitItem({
     required this.fecha,
@@ -1654,8 +2937,21 @@ class _AgendaVisitItem {
     required this.direccion,
     this.referencia,
     required this.contacto,
+    this.motivoKey = '',
+    this.detalleMotivo = const <String, dynamic>{},
     required this.pendiente,
     required this.personalAsignado,
+    this.fechaProbableFinalizacion,
+    this.pacienteCuentaConInfusor,
+    this.antibioticoCandidatoInfusor = false,
+    this.antibioticoDetectado,
+    this.requiereCambioDiarioInfusor = false,
+    this.programacionSugerida,
+    this.frecuenciaTratamiento,
+    this.frecuenciaTratamientoLabel,
+    this.tipoActividadAgenda,
+    this.verifiedLat,
+    this.verifiedLng,
   });
 
   _AgendaVisitItem copyWith({
@@ -1674,8 +2970,21 @@ class _AgendaVisitItem {
     String? direccion,
     String? referencia,
     String? contacto,
+    String? motivoKey,
+    Map<String, dynamic>? detalleMotivo,
     String? pendiente,
     String? personalAsignado,
+    DateTime? fechaProbableFinalizacion,
+    String? pacienteCuentaConInfusor,
+    bool? antibioticoCandidatoInfusor,
+    String? antibioticoDetectado,
+    bool? requiereCambioDiarioInfusor,
+    String? programacionSugerida,
+    String? frecuenciaTratamiento,
+    String? frecuenciaTratamientoLabel,
+    String? tipoActividadAgenda,
+    double? verifiedLat,
+    double? verifiedLng,
   }) {
     return _AgendaVisitItem(
       fecha: fecha ?? this.fecha,
@@ -1693,8 +3002,27 @@ class _AgendaVisitItem {
       direccion: direccion ?? this.direccion,
       referencia: referencia ?? this.referencia,
       contacto: contacto ?? this.contacto,
+      motivoKey: motivoKey ?? this.motivoKey,
+      detalleMotivo: detalleMotivo ?? this.detalleMotivo,
       pendiente: pendiente ?? this.pendiente,
       personalAsignado: personalAsignado ?? this.personalAsignado,
+      fechaProbableFinalizacion:
+          fechaProbableFinalizacion ?? this.fechaProbableFinalizacion,
+      pacienteCuentaConInfusor:
+          pacienteCuentaConInfusor ?? this.pacienteCuentaConInfusor,
+      antibioticoCandidatoInfusor:
+          antibioticoCandidatoInfusor ?? this.antibioticoCandidatoInfusor,
+      antibioticoDetectado: antibioticoDetectado ?? this.antibioticoDetectado,
+      requiereCambioDiarioInfusor:
+          requiereCambioDiarioInfusor ?? this.requiereCambioDiarioInfusor,
+      programacionSugerida: programacionSugerida ?? this.programacionSugerida,
+      frecuenciaTratamiento:
+          frecuenciaTratamiento ?? this.frecuenciaTratamiento,
+      frecuenciaTratamientoLabel:
+          frecuenciaTratamientoLabel ?? this.frecuenciaTratamientoLabel,
+      tipoActividadAgenda: tipoActividadAgenda ?? this.tipoActividadAgenda,
+      verifiedLat: verifiedLat ?? this.verifiedLat,
+      verifiedLng: verifiedLng ?? this.verifiedLng,
     );
   }
 }
@@ -1704,6 +3032,36 @@ class _AgendaRowData {
   final _AgendaVisitItem? item;
 
   _AgendaRowData({required this.hora, this.item});
+}
+
+class _AgendaPdfRow {
+  const _AgendaPdfRow({
+    required this.orden,
+    required this.hora,
+    required this.paciente,
+    required this.tratamiento,
+    required this.actividad,
+    required this.barrio,
+    required this.direccion,
+    required this.referencia,
+    required this.contacto,
+    required this.responsable,
+    required this.responsableRol,
+    required this.estado,
+  });
+
+  final String orden;
+  final String hora;
+  final String paciente;
+  final String tratamiento;
+  final String actividad;
+  final String barrio;
+  final String direccion;
+  final String referencia;
+  final String contacto;
+  final String responsable;
+  final String responsableRol;
+  final String estado;
 }
 
 class _PacienteParts {
@@ -1739,33 +3097,35 @@ class _AgendaFormatters {
   }
 
   static String formatDiagnosis(String text, {String fallback = ''}) {
-    final String normalized = normalizeSpace(text);
-    if (normalized.isEmpty) return fallback;
-
-    final List<String> parts = normalized
-        .split(RegExp(r'\s+\+\s+'))
-        .map((String e) => toSentenceCase(e.trim()))
-        .where((String e) => e.isNotEmpty)
-        .toList();
-
-    if (parts.isEmpty) return fallback;
-    if (parts.length == 1) return parts.first;
-
-    return parts.join(' +\n');
+    final String normalized = DiagnosisTextFormatter.formatForAgenda(text);
+    return normalized.trim().isEmpty ? fallback : normalized;
   }
 
-  static String summarizeTreatment(String text, {String fallback = ''}) {
-    final List<String> parts = text
-        .split('·')
-        .map((String e) => normalizeSpace(e))
-        .where((String e) => e.isNotEmpty)
-        .toList();
+  static List<String> splitTreatmentTokens(
+    String text, {
+    String? antibioticoDetectado,
+  }) {
+    final Set<String> seen = <String>{};
+    final List<String> tokens = <String>[];
 
-    if (parts.isEmpty) return fallback;
+    void addToken(String value) {
+      final String normalized = normalizeSpace(value)
+          .replaceAll(RegExp(r'^[\-\u2022]+'), '')
+          .trim();
+      if (normalized.isEmpty) return;
+      final String key = normalized.toLowerCase();
+      if (!seen.add(key)) return;
+      tokens.add(normalized);
+    }
 
-    final int take = parts.length >= 2 ? 2 : 1;
-    final String summary = parts.take(take).map(toSentenceCase).join(' · ');
-    return parts.length > take ? '$summary…' : summary;
+    for (final String part in text.split(RegExp(r'[\n;,]+'))) {
+      for (final String token in part.split('·')) {
+        addToken(token);
+      }
+    }
+
+    addToken(antibioticoDetectado ?? '');
+    return tokens;
   }
 
   static String formatContact(String text, {String fallback = ''}) {
@@ -1787,22 +3147,27 @@ class _AgendaFormatters {
       final String tipoDoc = (match.group(2) ?? '').toUpperCase();
       final String numDoc = match.group(3) ?? '';
       return _PacienteParts(
-        nombre: toTitleCase(nombreRaw),
+        nombre: normalizeSpace(nombreRaw).toUpperCase(),
         identificacion: '$tipoDoc $numDoc',
       );
     }
 
-    return _PacienteParts(nombre: toTitleCase(normalized), identificacion: '');
+    return _PacienteParts(
+      nombre: normalized.toUpperCase(),
+      identificacion: '',
+    );
   }
 }
 
 class _AgendaTableMetrics {
-  static const double hora = 78;
-  static const double paciente = 280;
-  static const double dx = 355;
-  static const double tratamiento = 355;
-  static const double direccion = 340;
-  static const double contacto = 230;
+  static const double columnGap = 12;
+  static const int columnCount = 7;
+  static const double hora = 70;
+  static const double paciente = 190;
+  static const double dx = 280;
+  static const double tratamiento = 300;
+  static const double direccion = 280;
+  static const double contacto = 200;
   static const double personalAsignado = 200;
 
   static const double minTotalWidth =
@@ -1812,7 +3177,8 @@ class _AgendaTableMetrics {
       tratamiento +
       direccion +
       contacto +
-      personalAsignado;
+      personalAsignado +
+      ((columnCount - 1) * columnGap);
 }
 
 enum _VisitFlowState { pendiente, enRuta, llego, enAtencion, finalizada }
@@ -1859,22 +3225,99 @@ class _AuxOperationRow {
   });
 }
 
+class _ResponsibleSummary {
+  const _ResponsibleSummary({
+    required this.displayName,
+    required this.roleLabel,
+    required this.activityLabel,
+    required this.isAssigned,
+  });
+
+  final String displayName;
+  final String roleLabel;
+  final String activityLabel;
+  final bool isAssigned;
+}
+
+class _ResponsibleBlock extends StatelessWidget {
+  const _ResponsibleBlock({required this.summary, this.compact = false});
+
+  final _ResponsibleSummary summary;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color roleColor = summary.isAssigned
+        ? const Color(0xFF667085)
+        : const Color(0xFF9A6700);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          summary.displayName,
+          maxLines: compact ? 2 : null,
+          overflow: compact ? TextOverflow.ellipsis : null,
+          style: const TextStyle(
+            fontSize: 13.5,
+            height: 1.2,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF243247),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          summary.roleLabel,
+          maxLines: 1,
+          overflow: compact ? TextOverflow.ellipsis : null,
+          style: TextStyle(
+            fontSize: 12,
+            height: 1.2,
+            fontWeight: FontWeight.w500,
+            color: roleColor,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          summary.activityLabel,
+          maxLines: 1,
+          overflow: compact ? TextOverflow.ellipsis : null,
+          style: const TextStyle(
+            fontSize: 11.5,
+            height: 1.2,
+            color: Color(0xFF667085),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _MobileVisitCard extends StatelessWidget {
   const _MobileVisitCard({
     required this.item,
+    required this.responsibleSummary,
     required this.state,
     required this.collapsed,
     required this.onStateTap,
     required this.onOpenMap,
     required this.onPingLocation,
+    required this.onEditLocation,
+    required this.onVerifyLocation,
+    this.onOpenVerifiedMap,
   });
 
   final _AgendaVisitItem item;
+  final _ResponsibleSummary responsibleSummary;
   final _VisitOperationalStatus state;
   final bool collapsed;
   final ValueChanged<_VisitFlowState> onStateTap;
   final VoidCallback onOpenMap;
   final VoidCallback onPingLocation;
+  final VoidCallback onEditLocation;
+  final VoidCallback onVerifyLocation;
+  final VoidCallback? onOpenVerifiedMap;
 
   Color get _stateColor {
     switch (state.state) {
@@ -1957,7 +3400,7 @@ class _MobileVisitCard extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: _stateColor.withOpacity(0.12),
+                  color: _stateColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -1981,21 +3424,42 @@ class _MobileVisitCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            _AgendaFormatters.toTitleCase(
-              item.personalAsignado,
-              fallback: 'Sin asignar',
-            ),
-            style: const TextStyle(fontSize: 13.5, color: Color(0xFF556074)),
-          ),
-          const SizedBox(height: 4),
           _AddressBlock(
             barrio: item.barrio,
             direccion: item.direccion,
             referencia: item.referencia,
             compact: true,
+            onEditLocation: onEditLocation,
+            onVerifyLocation: onVerifyLocation,
+            hasVerifiedCoordinates:
+                item.verifiedLat != null && item.verifiedLng != null,
+            onOpenVerifiedMap: onOpenVerifiedMap,
           ),
           const SizedBox(height: 8),
+          const Text(
+            'CONTACTO',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+              color: Color(0xFF98A2B3),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _ContactBlock(contacto: item.contacto),
+          const SizedBox(height: 10),
+          const Text(
+            'RESPONSABLE',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+              color: Color(0xFF98A2B3),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _ResponsibleBlock(summary: responsibleSummary),
+          const SizedBox(height: 10),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -2010,6 +3474,16 @@ class _MobileVisitCard extends StatelessWidget {
                 icon: const Icon(Icons.gps_fixed, size: 18),
                 label: const Text('Actualizar ubicacion'),
               ),
+              OutlinedButton.icon(
+                onPressed: onEditLocation,
+                icon: const Icon(Icons.edit_location_alt_outlined, size: 18),
+                label: const Text('Editar ubicación y contactos'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onVerifyLocation,
+                icon: const Icon(Icons.fact_check_outlined, size: 18),
+                label: const Text('Verificar en sitio'),
+              ),
               if (!collapsed)
                 ...quickActions.map((action) {
                   final bool selected = state.state == action;
@@ -2017,7 +3491,7 @@ class _MobileVisitCard extends StatelessWidget {
                     onPressed: () => onStateTap(action),
                     style: FilledButton.styleFrom(
                       backgroundColor: selected
-                          ? _stateColor.withOpacity(0.2)
+                          ? _stateColor.withValues(alpha: 0.2)
                           : const Color(0xFFF2F4F7),
                       foregroundColor:
                           selected ? _stateColor : const Color(0xFF364152),
@@ -2042,6 +3516,891 @@ class _MobileVisitCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _PatientLocationContact {
+  const _PatientLocationContact({
+    required this.nombre,
+    required this.telefono,
+    required this.parentesco,
+    required this.esPrincipal,
+  });
+
+  final String nombre;
+  final String telefono;
+  final String parentesco;
+  final bool esPrincipal;
+
+  bool get isEmpty =>
+      nombre.trim().isEmpty &&
+      telefono.trim().isEmpty &&
+      parentesco.trim().isEmpty;
+
+  bool get isComplete =>
+      nombre.trim().isNotEmpty &&
+      telefono.trim().isNotEmpty &&
+      parentesco.trim().isNotEmpty;
+
+  Map<String, dynamic> toMap() => <String, dynamic>{
+    'nombre': nombre.trim(),
+    'telefono': telefono.trim(),
+    'parentesco': parentesco.trim(),
+    'esPrincipal': esPrincipal,
+  };
+
+  String toSummary() {
+    final List<String> parts = <String>[];
+    if (nombre.trim().isNotEmpty) {
+      parts.add(nombre.trim());
+    }
+    if (parentesco.trim().isNotEmpty) {
+      parts.add(parentesco.trim());
+    }
+    if (telefono.trim().isNotEmpty) {
+      parts.add(telefono.trim());
+    }
+    return parts.join(' · ');
+  }
+}
+
+class _PatientLocationPayload {
+  const _PatientLocationPayload({
+    required this.direccionAdministrativa,
+    required this.barrio,
+    required this.referenciaAdministrativa,
+    required this.contactos,
+    required this.observacionesAcceso,
+  });
+
+  final String direccionAdministrativa;
+  final String barrio;
+  final String referenciaAdministrativa;
+  final List<_PatientLocationContact> contactos;
+  final String observacionesAcceso;
+
+  bool get hasMinimumOperativeData =>
+      direccionAdministrativa.trim().isNotEmpty &&
+      contactos.any((contact) => contact.isComplete);
+
+  String get estadoUbicacion =>
+      hasMinimumOperativeData
+          ? 'completa_administrativa'
+          : 'pendiente_administrativa';
+
+  String get contactSummary {
+    final List<_PatientLocationContact> ordered = contactos
+        .where((contact) => !contact.isEmpty)
+        .toList()
+      ..sort((a, b) {
+        if (a.esPrincipal == b.esPrincipal) {
+          return 0;
+        }
+        return a.esPrincipal ? -1 : 1;
+      });
+    return ordered
+        .map((contact) => contact.toSummary())
+        .where((line) => line.trim().isNotEmpty)
+        .join(' | ');
+  }
+
+  Map<String, dynamic> toFirestoreMap() => <String, dynamic>{
+    'direccionAdministrativa': direccionAdministrativa.trim(),
+    'barrio': barrio.trim(),
+    'referenciaAdministrativa': referenciaAdministrativa.trim(),
+    'contactos': contactos
+        .where((contact) => !contact.isEmpty)
+        .map((contact) => contact.toMap())
+        .toList(),
+    'observacionesAcceso': observacionesAcceso.trim(),
+    'estadoUbicacion': estadoUbicacion,
+  };
+}
+
+class _SiteVerificationPayload {
+  const _SiteVerificationPayload({
+    required this.confirmada,
+    required this.lat,
+    required this.lng,
+    required this.direccionGeocodificada,
+    required this.referenciaReal,
+  });
+
+  final bool confirmada;
+  final double lat;
+  final double lng;
+  final String direccionGeocodificada;
+  final String referenciaReal;
+
+  Map<String, dynamic> toFirestoreMap() => <String, dynamic>{
+    'confirmada': confirmada,
+    'lat': lat,
+    'lng': lng,
+    'direccionReal': '',
+    'direccionGeocodificada': direccionGeocodificada.trim(),
+    'referenciaReal': referenciaReal.trim(),
+    'contactoEfectivo': '',
+    'observacion': '',
+  };
+}
+
+class _VerifyLocationDialog extends StatefulWidget {
+  const _VerifyLocationDialog({
+    required this.patientName,
+    required this.initialData,
+  });
+
+  final String patientName;
+  final Map<String, dynamic> initialData;
+
+  @override
+  State<_VerifyLocationDialog> createState() => _VerifyLocationDialogState();
+}
+
+class _VerifyLocationDialogState extends State<_VerifyLocationDialog> {
+  GoogleMapController? _mapController;
+  late final TextEditingController _referenciaRealController;
+  late LatLng _selectedLatLng;
+  String _direccionGeocodificada = '';
+  bool _saving = false;
+  bool _loadingCurrentLocation = true;
+  String? _locationError;
+
+  @override
+  void initState() {
+    super.initState();
+    final Map<String, dynamic> verificacion =
+        widget.initialData['verificacionEnSitio'] is Map
+            ? Map<String, dynamic>.from(
+                widget.initialData['verificacionEnSitio'] as Map,
+              )
+            : <String, dynamic>{};
+    final double? lat = _readCoordinate(verificacion['lat']);
+    final double? lng = _readCoordinate(verificacion['lng']);
+    _selectedLatLng = lat != null && lng != null
+        ? LatLng(lat, lng)
+        : _AgendaScreenState._defaultMapCenter;
+    _direccionGeocodificada =
+        (verificacion['direccionGeocodificada'] ?? '').toString();
+    _referenciaRealController = TextEditingController(
+      text: (verificacion['referenciaReal'] ?? '').toString(),
+    );
+    unawaited(_bootstrapEmbeddedMap());
+  }
+
+  @override
+  void dispose() {
+    _referenciaRealController.dispose();
+    _mapController?.dispose();
+    super.dispose();
+  }
+
+  static double? _readCoordinate(dynamic raw) {
+    if (raw is num) {
+      return raw.toDouble();
+    }
+    if (raw == null) {
+      return null;
+    }
+    return double.tryParse(raw.toString().trim());
+  }
+
+  Future<void> _initializeMapSelection() async {
+    await _moveToCurrentLocation();
+    await _reverseGeocode(_selectedLatLng, moveCamera: false);
+    if (mounted) {
+      setState(() {
+        _loadingCurrentLocation = false;
+      });
+    }
+  }
+
+  Future<void> _bootstrapEmbeddedMap() async {
+    if (kIsWeb) {
+      if (mounted) {
+        setState(() {
+          _locationError =
+              'El mapa embebido no está disponible en web. Usa tu ubicación actual o abre Google Maps para validar el punto.';
+        });
+      }
+
+      await _initializeMapSelection();
+      return;
+    }
+
+    await _initializeMapSelection();
+  }
+
+  Future<void> _moveToCurrentLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          setState(() {
+            _locationError =
+                'GPS no disponible. Puedes mover el pin manualmente.';
+          });
+        }
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          setState(() {
+            _locationError =
+                'Sin permiso de ubicación. Puedes mover el pin manualmente.';
+          });
+        }
+        return;
+      }
+
+      final Position position = await Geolocator.getCurrentPosition();
+      final LatLng next = LatLng(position.latitude, position.longitude);
+      if (!mounted) return;
+      setState(() {
+        _selectedLatLng = next;
+        _locationError = null;
+      });
+      await _mapController?.animateCamera(CameraUpdate.newLatLng(next));
+      await _reverseGeocode(next, moveCamera: false);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _locationError =
+              'No fue posible obtener tu ubicación. Puedes mover el pin manualmente.';
+        });
+      }
+    }
+  }
+
+  Future<void> _reverseGeocode(LatLng target, {bool moveCamera = true}) async {
+    if (mounted) {
+      setState(() {
+        _selectedLatLng = target;
+      });
+    }
+    if (moveCamera) {
+      await _mapController?.animateCamera(CameraUpdate.newLatLng(target));
+    }
+    try {
+      final List<Placemark> placemarks = await placemarkFromCoordinates(
+        target.latitude,
+        target.longitude,
+      );
+      final Placemark first = placemarks.first;
+      final List<String> parts = <String>[
+        first.street ?? '',
+        first.subLocality ?? '',
+        first.locality ?? '',
+      ].where((part) => part.trim().isNotEmpty).toList();
+      if (!mounted) return;
+      setState(() {
+        _direccionGeocodificada = parts.join(', ');
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _direccionGeocodificada = '';
+      });
+    }
+  }
+
+  Future<void> _openGoogleMaps() async {
+    final Uri uri = Uri.parse(
+      'https://www.google.com/maps?q=${_selectedLatLng.latitude},${_selectedLatLng.longitude}',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  void _save() {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+    });
+    Navigator.of(context).pop(
+      _SiteVerificationPayload(
+        confirmada: true,
+        lat: _selectedLatLng.latitude,
+        lng: _selectedLatLng.longitude,
+        direccionGeocodificada: _direccionGeocodificada,
+        referenciaReal: _referenciaRealController.text,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool supportsEmbeddedMap =
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          const Text(
+                            'Marcar ubicación en sitio',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF243247),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _AgendaFormatters.toTitleCase(widget.patientName),
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF17726D),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _saving
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (_locationError != null) ...<Widget>[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF4E5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _locationError!,
+                      style: const TextStyle(color: Color(0xFF8F5A00)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                SizedBox(
+                  height: 360,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: supportsEmbeddedMap
+                        ? GoogleMap(
+                            initialCameraPosition: CameraPosition(
+                              target: _selectedLatLng,
+                              zoom: 16,
+                            ),
+                            myLocationEnabled: true,
+                            myLocationButtonEnabled: false,
+                            zoomControlsEnabled: false,
+                            onMapCreated: (GoogleMapController controller) {
+                              _mapController = controller;
+                            },
+                            onTap: (LatLng latLng) {
+                              unawaited(_reverseGeocode(latLng));
+                            },
+                            markers: <Marker>{
+                              Marker(
+                                markerId: const MarkerId('site-verification'),
+                                position: _selectedLatLng,
+                                draggable: true,
+                                onDragEnd: (LatLng latLng) {
+                                  unawaited(_reverseGeocode(latLng, moveCamera: false));
+                                },
+                              ),
+                            },
+                          )
+                        : Container(
+                            color: const Color(0xFFF8FAFC),
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              kIsWeb
+                                  ? 'No se pudo cargar el mapa. Use coordenadas o abrir en Google Maps.'
+                                  : 'El selector de mapa embebido no está disponible en esta plataforma. Usa Google Maps y confirma manualmente el pin.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Color(0xFF667085)),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: <Widget>[
+                    ActionChip(
+                      label: Text(
+                        'Lat ${_selectedLatLng.latitude.toStringAsFixed(6)}',
+                      ),
+                      onPressed: null,
+                    ),
+                    ActionChip(
+                      label: Text(
+                        'Lng ${_selectedLatLng.longitude.toStringAsFixed(6)}',
+                      ),
+                      onPressed: null,
+                    ),
+                    if (_loadingCurrentLocation)
+                      const ActionChip(
+                        label: Text('Buscando GPS...'),
+                        onPressed: null,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: <Widget>[
+                    OutlinedButton.icon(
+                      onPressed: _saving ? null : () => _moveToCurrentLocation(),
+                      icon: const Icon(Icons.my_location_outlined),
+                      style: _agendaOutlineButtonStyle(),
+                      label: const Text('Usar mi ubicación'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _saving ? null : _openGoogleMaps,
+                      icon: const Icon(Icons.open_in_new_outlined),
+                      style: _agendaOutlineButtonStyle(),
+                      label: const Text('Abrir en Google Maps'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_direccionGeocodificada.trim().isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE7ECF1)),
+                    ),
+                    child: Text(
+                      _direccionGeocodificada,
+                      style: const TextStyle(color: Color(0xFF475467)),
+                    ),
+                  ),
+                if (_direccionGeocodificada.trim().isNotEmpty)
+                  const SizedBox(height: 12),
+                LightInput(
+                  controller: _referenciaRealController,
+                  label: 'Referencia real opcional',
+                  enabled: !_saving,
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: <Widget>[
+                    OutlinedButton(
+                      onPressed: _saving
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      style: _agendaOutlineButtonStyle(),
+                      child: const Text('Cancelar'),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.icon(
+                      onPressed: _saving ? null : _save,
+                      icon: const Icon(Icons.verified_outlined),
+                      style: _agendaPrimaryButtonStyle(),
+                      label: const Text('Confirmar ubicación en sitio'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EditLocationDialog extends StatefulWidget {
+  const _EditLocationDialog({
+    required this.patientName,
+    required this.initialData,
+  });
+
+  final String patientName;
+  final Map<String, dynamic> initialData;
+
+  @override
+  State<_EditLocationDialog> createState() => _EditLocationDialogState();
+}
+
+class _EditLocationDialogState extends State<_EditLocationDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  late final TextEditingController _direccionController;
+  late final TextEditingController _barrioController;
+  late final TextEditingController _referenciaController;
+  late final TextEditingController _observacionesController;
+  late final List<TextEditingController> _contactNameControllers;
+  late final List<TextEditingController> _contactPhoneControllers;
+  late final List<TextEditingController> _contactRelationControllers;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final List<dynamic> rawContacts = widget.initialData['contactos'] is List
+        ? widget.initialData['contactos'] as List<dynamic>
+        : const <dynamic>[];
+    final List<Map<String, dynamic>> contacts =
+        List<Map<String, dynamic>>.generate(
+      2,
+      (int index) {
+        final dynamic raw = index < rawContacts.length ? rawContacts[index] : null;
+        if (raw is Map) {
+          return <String, dynamic>{
+            'nombre': (raw['nombre'] ?? '').toString(),
+            'telefono': (raw['telefono'] ?? '').toString(),
+            'parentesco': (raw['parentesco'] ?? '').toString(),
+            'esPrincipal': raw['esPrincipal'] == true,
+          };
+        }
+        return <String, dynamic>{};
+      },
+    );
+
+    _direccionController = TextEditingController(
+      text: (widget.initialData['direccionAdministrativa'] ?? '').toString(),
+    );
+    _barrioController = TextEditingController(
+      text: (widget.initialData['barrio'] ?? '').toString(),
+    );
+    _referenciaController = TextEditingController(
+      text: (widget.initialData['referenciaAdministrativa'] ?? '').toString(),
+    );
+    _observacionesController = TextEditingController(
+      text: (widget.initialData['observacionesAcceso'] ?? '').toString(),
+    );
+    _contactNameControllers = contacts
+        .map((contact) => TextEditingController(text: (contact['nombre'] ?? '').toString()))
+        .toList();
+    _contactPhoneControllers = contacts
+        .map((contact) => TextEditingController(text: (contact['telefono'] ?? '').toString()))
+        .toList();
+    _contactRelationControllers = contacts
+        .map((contact) => TextEditingController(text: (contact['parentesco'] ?? '').toString()))
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    _direccionController.dispose();
+    _barrioController.dispose();
+    _referenciaController.dispose();
+    _observacionesController.dispose();
+    for (final controller in _contactNameControllers) {
+      controller.dispose();
+    }
+    for (final controller in _contactPhoneControllers) {
+      controller.dispose();
+    }
+    for (final controller in _contactRelationControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  _PatientLocationPayload _buildPayload() {
+    final int principalIndex = List<int>.generate(2, (int index) => index)
+        .firstWhere(
+          (int index) {
+            final String nombre = _contactNameControllers[index].text.trim();
+            final String telefono = _contactPhoneControllers[index].text.trim();
+            final String parentesco =
+                _contactRelationControllers[index].text.trim();
+            return nombre.isNotEmpty ||
+                telefono.isNotEmpty ||
+                parentesco.isNotEmpty;
+          },
+          orElse: () => 0,
+        );
+    final List<_PatientLocationContact> contactos =
+        List<_PatientLocationContact>.generate(
+      2,
+      (int index) => _PatientLocationContact(
+        nombre: _contactNameControllers[index].text,
+        telefono: _contactPhoneControllers[index].text,
+        parentesco: _contactRelationControllers[index].text,
+        esPrincipal: index == principalIndex,
+      ),
+    );
+    return _PatientLocationPayload(
+      direccionAdministrativa: _direccionController.text,
+      barrio: _barrioController.text,
+      referenciaAdministrativa: _referenciaController.text,
+      contactos: contactos,
+      observacionesAcceso: _observacionesController.text,
+    );
+  }
+
+  void _save() {
+    if (_saving) return;
+    final bool valid = _formKey.currentState?.validate() ?? false;
+    if (!valid) return;
+    final _PatientLocationPayload payload = _buildPayload();
+    if (!payload.hasMinimumOperativeData) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Debes registrar dirección completa y al menos un contacto completo.',
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _saving = true;
+    });
+    Navigator.of(context).pop(payload);
+  }
+
+  String? _validateContactField(int index, String? value, String field) {
+    final String nombre = _contactNameControllers[index].text.trim();
+    final String telefono = _contactPhoneControllers[index].text.trim();
+    final String parentesco = _contactRelationControllers[index].text.trim();
+    final bool anyFilled =
+        nombre.isNotEmpty || telefono.isNotEmpty || parentesco.isNotEmpty;
+    if (!anyFilled) {
+      return null;
+    }
+    if (value == null || value.trim().isEmpty) {
+      return '$field requerido';
+    }
+    return null;
+  }
+
+  Widget _buildContactSection({
+    required String title,
+    required int index,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE7ECF1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF243247),
+            ),
+          ),
+          const SizedBox(height: 12),
+          LightInput(
+            controller: _contactNameControllers[index],
+            label: 'Nombre',
+            enabled: !_saving,
+            validator: (value) => _validateContactField(index, value, 'Nombre'),
+          ),
+          const SizedBox(height: 12),
+          LightInput(
+            controller: _contactPhoneControllers[index],
+            label: 'Teléfono',
+            enabled: !_saving,
+            keyboardType: TextInputType.phone,
+            validator: (value) =>
+                _validateContactField(index, value, 'Teléfono'),
+          ),
+          const SizedBox(height: 12),
+          LightInput(
+            controller: _contactRelationControllers[index],
+            label: 'Parentesco',
+            enabled: !_saving,
+            validator: (value) =>
+                _validateContactField(index, value, 'Parentesco'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContactFields(BoxConstraints constraints) {
+    final bool singleColumn = constraints.maxWidth < 620;
+
+    if (singleColumn) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _buildContactSection(title: 'Contacto 1', index: 0),
+          const SizedBox(height: 12),
+          _buildContactSection(title: 'Contacto 2', index: 1),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: <Widget>[
+            SizedBox(
+              width: (constraints.maxWidth - 12) / 2,
+              child: _buildContactSection(title: 'Contacto 1', index: 0),
+            ),
+            SizedBox(
+              width: (constraints.maxWidth - 12) / 2,
+              child: _buildContactSection(title: 'Contacto 2', index: 1),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+          child: SingleChildScrollView(
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text(
+                              'Editar ubicación y contactos',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF243247),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Actualiza dirección, referencias de acceso y contactos para la visita domiciliaria.',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                color: Color(0xFF667085),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _AgendaFormatters.toTitleCase(widget.patientName),
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF17726D),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _saving
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  LightInput(
+                    controller: _barrioController,
+                    label: 'Barrio',
+                    enabled: !_saving,
+                  ),
+                  const SizedBox(height: 12),
+                  LightInput(
+                    controller: _direccionController,
+                    label: 'Dirección completa',
+                    enabled: !_saving,
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Dirección requerida'
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  LightInput(
+                    controller: _referenciaController,
+                    label: 'Punto de referencia',
+                    enabled: !_saving,
+                  ),
+                  const SizedBox(height: 16),
+                  LayoutBuilder(
+                    builder: (BuildContext context, BoxConstraints constraints) =>
+                        _buildContactFields(constraints),
+                  ),
+                  const SizedBox(height: 16),
+                  LightInput(
+                    controller: _observacionesController,
+                    label: 'Observaciones de acceso',
+                    enabled: !_saving,
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: <Widget>[
+                      OutlinedButton(
+                        onPressed: _saving
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                        style: _agendaOutlineButtonStyle(),
+                        child: const Text('Cancelar'),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton(
+                        onPressed: _saving ? null : _save,
+                        style: _agendaPrimaryButtonStyle(),
+                        child: const Text('Guardar ubicación y contactos'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2132,47 +4491,344 @@ class _AddressBlock extends StatelessWidget {
   final String direccion;
   final String? referencia;
   final bool compact;
+  final VoidCallback? onEditLocation;
+  final VoidCallback? onVerifyLocation;
+  final VoidCallback? onOpenVerifiedMap;
+  final bool hasVerifiedCoordinates;
 
   const _AddressBlock({
     this.barrio,
     required this.direccion,
     this.referencia,
     this.compact = false,
+    this.onEditLocation,
+    this.onVerifyLocation,
+    this.onOpenVerifiedMap,
+    this.hasVerifiedCoordinates = false,
   });
+
+  static String _safeTrimmedText(String? value) {
+    return (value ?? '').trim();
+  }
+
+  static String _safeTitleCase(String text) {
+    try {
+      return _AgendaFormatters.toTitleCase(text);
+    } catch (_) {
+      return _AgendaFormatters.normalizeSpace(text);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    const TextStyle baseStyle = TextStyle(
+    final String trimmedBarrio = _safeTrimmedText(barrio);
+    final String trimmedDireccion = _safeTrimmedText(direccion);
+    final String trimmedReferencia = (referencia ?? '').trim();
+    final bool safeCompact = compact;
+    final Color accentColor = const Color(0xFF17726D).withValues(alpha: 0.7);
+    const TextStyle primaryLineStyle = TextStyle(
       fontSize: 13.5,
-      height: 1.35,
-      color: Color(0xFF748096),
+      height: 1.2,
+      fontWeight: FontWeight.w600,
+      color: Color(0xFF243247),
     );
+    const TextStyle secondaryLineStyle = TextStyle(
+      fontSize: 12,
+      height: 1.2,
+      color: Color(0xFF667085),
+    );
+    final String primaryLine = trimmedBarrio.isNotEmpty
+      ? trimmedBarrio.toUpperCase()
+        : trimmedDireccion.isNotEmpty
+      ? _safeTitleCase(trimmedDireccion)
+        : 'Ubicación pendiente';
+    final String statusLine = hasVerifiedCoordinates
+        ? 'Ubicación verificada'
+        : trimmedDireccion.isNotEmpty
+        ? 'Ubicación registrada'
+        : 'Ubicación pendiente';
+    final bool showActions = !safeCompact &&
+        (onEditLocation != null ||
+            onVerifyLocation != null ||
+            (hasVerifiedCoordinates && onOpenVerifiedMap != null));
+    final List<Widget> actionChildren = <Widget>[];
+
+    if (onEditLocation != null) {
+      actionChildren.add(
+        _AddressInlineAction(
+          icon: Icons.edit_location_alt_outlined,
+          label: 'Editar ubicación y contactos',
+          onTap: onEditLocation!,
+        ),
+      );
+    }
+    if (onVerifyLocation != null) {
+      actionChildren.add(
+        _AddressInlineAction(
+          icon: Icons.fact_check_outlined,
+          label: 'Verificar en sitio',
+          onTap: onVerifyLocation!,
+        ),
+      );
+    }
+    if (hasVerifiedCoordinates && onOpenVerifiedMap != null) {
+      actionChildren.add(
+        _AddressInlineAction(
+          icon: Icons.map_outlined,
+          label: 'Ver en mapa',
+          onTap: onOpenVerifiedMap!,
+        ),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        if (barrio != null && barrio!.isNotEmpty)
-          Text(
-            _AgendaFormatters.toTitleCase(barrio!),
-            style: baseStyle.copyWith(fontWeight: FontWeight.w600),
-          ),
-        Text(
-          _AgendaFormatters.toTitleCase(direccion, fallback: 'Sin dirección'),
-          style: baseStyle,
-        ),
-        if (referencia != null && referencia!.isNotEmpty)
-          Text(
-            _AgendaFormatters.toTitleCase(referencia!),
-            maxLines: compact ? 2 : null,
-            overflow: compact ? TextOverflow.ellipsis : null,
-            style: baseStyle.copyWith(
-              fontSize: 12.5,
-              color: const Color(0xFFA0AEBE),
-              height: 1.3,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Icon(
+              Icons.place_outlined,
+              size: 16,
+              color: accentColor,
             ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.gps_fixed_outlined,
+              size: 16,
+              color: hasVerifiedCoordinates
+                  ? accentColor
+                  : const Color(0xFF98A2B3),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              fit: FlexFit.loose,
+              child: Text(
+                primaryLine,
+                maxLines: safeCompact ? 1 : 2,
+                overflow: safeCompact ? TextOverflow.ellipsis : null,
+                style: primaryLineStyle,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          statusLine,
+          style: secondaryLineStyle.copyWith(color: const Color(0xFF98A2B3)),
+        ),
+        if (trimmedDireccion.isNotEmpty && trimmedBarrio.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 5),
+          Text(
+            _safeTitleCase(trimmedDireccion),
+            maxLines: safeCompact ? 2 : null,
+            overflow: safeCompact ? TextOverflow.ellipsis : null,
+            style: secondaryLineStyle,
           ),
+        ],
+        if (trimmedReferencia.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 3),
+          Text(
+            _safeTitleCase(trimmedReferencia),
+            maxLines: safeCompact ? 2 : null,
+            overflow: safeCompact ? TextOverflow.ellipsis : null,
+            style: secondaryLineStyle.copyWith(color: const Color(0xFF98A2B3)),
+          ),
+        ],
+        if (showActions) ...<Widget>[
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: actionChildren,
+          ),
+        ],
       ],
     );
   }
+}
+
+class _ContactBlock extends StatelessWidget {
+  const _ContactBlock({required this.contacto});
+
+  final String contacto;
+
+  ({String name, String phone}) _splitPrimaryContact(String raw) {
+    final List<String> parts = raw
+        .split('·')
+        .map((String item) => _AgendaFormatters.normalizeSpace(item))
+        .where((String item) => item.isNotEmpty)
+        .toList();
+
+    if (parts.isEmpty) {
+      return (name: '', phone: '');
+    }
+
+    final List<String> phones = <String>[];
+    final List<String> labels = <String>[];
+    for (final String part in parts) {
+      final String digits = part.replaceAll(RegExp(r'\D'), '');
+      if (digits.length >= 7) {
+        phones.add(digits);
+      } else {
+        labels.add(part);
+      }
+    }
+
+    return (
+      name: labels.isEmpty ? parts.first : labels.join(' · '),
+      phone: phones.join(' · '),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> contacts = contacto
+        .split('|')
+        .map((String item) => _AgendaFormatters.normalizeSpace(item))
+        .where((String item) => item.isNotEmpty)
+        .toList();
+    if (contacts.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final String primaryContact = _AgendaFormatters.formatContact(
+      contacts.first,
+      fallback: '',
+    );
+    final ({String name, String phone}) parsed = _splitPrimaryContact(
+      primaryContact,
+    );
+    final int extraContacts = contacts.length - 1;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (parsed.name.isNotEmpty)
+          Text(
+            parsed.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: true,
+            style: const TextStyle(
+              fontSize: 13.5,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF243247),
+            ),
+          ),
+        if (parsed.phone.isNotEmpty) ...<Widget>[
+          if (parsed.name.isNotEmpty) const SizedBox(height: 2),
+          Text(
+            parsed.phone,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: const TextStyle(
+              fontSize: 12.5,
+              height: 1.2,
+              color: Color(0xFF667085),
+            ),
+          ),
+        ] else if (parsed.name.isEmpty)
+          Text(
+            primaryContact,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            softWrap: true,
+            style: const TextStyle(
+              fontSize: 13.5,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF243247),
+            ),
+          ),
+        if (extraContacts > 0) ...<Widget>[
+          const SizedBox(height: 2),
+          Text(
+            extraContacts == 1 ? '+1 contacto' : '+$extraContacts contactos',
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.25,
+              color: Color(0xFF667085),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _AddressInlineAction extends StatelessWidget {
+  const _AddressInlineAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 210),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.max,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Icon(icon, size: 16, color: const Color(0xFF17726D)),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: true,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                    color: HextColors.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+ButtonStyle _agendaOutlineButtonStyle() {
+  return OutlinedButton.styleFrom(
+    foregroundColor: const Color(0xFF475467),
+    side: const BorderSide(color: Color(0xFFD0D5DD)),
+    minimumSize: const Size(0, 40),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  );
+}
+
+ButtonStyle _agendaPrimaryButtonStyle() {
+  return FilledButton.styleFrom(
+    backgroundColor: HextColors.primary,
+    foregroundColor: Colors.white,
+    disabledBackgroundColor: HextColors.borderSoft,
+    disabledForegroundColor: HextColors.textMuted,
+    overlayColor: HextColors.primarySoft,
+    elevation: 0,
+    minimumSize: const Size(0, 40),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  );
 }

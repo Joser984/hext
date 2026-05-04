@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
 import 'field_shell.dart';
 
 class LightInput extends StatefulWidget {
@@ -51,8 +52,8 @@ class _LightInputState extends State<LightInput> {
   @override
   Widget build(BuildContext context) {
     final Color textColor = widget.readOnly || !widget.enabled
-        ? const Color(0xFF6B7280)
-        : const Color(0xFF1F2937);
+        ? HextColors.textSecondary
+        : HextColors.textPrimary;
 
     final Widget field = TextFormField(
       controller: widget.controller,
@@ -70,19 +71,11 @@ class _LightInputState extends State<LightInput> {
       readOnly: widget.readOnly,
       obscureText: _obscure,
       maxLines: widget.obscureText ? 1 : widget.maxLines,
-      textAlignVertical: const TextAlignVertical(y: 0.9),
-      style: TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w400,
-        color: textColor,
-      ),
+      textAlignVertical: TextAlignVertical.center,
+      style: HextTextStyles.field.copyWith(color: textColor),
       decoration: InputDecoration(
         hintText: widget.hint,
-        hintStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w400,
-          color: Color(0xFF6B7280),
-        ),
+        hintStyle: HextTextStyles.field.copyWith(color: HextColors.textSecondary),
         border: InputBorder.none,
         isDense: true,
         contentPadding: EdgeInsets.zero,
@@ -112,7 +105,7 @@ class _LightInputState extends State<LightInput> {
                               ? Icons.visibility_outlined
                               : Icons.visibility_off_outlined,
                           size: 18,
-                          color: const Color(0xFF6B7280),
+                          color: HextColors.textSecondary,
                         ),
                       ),
                     ],

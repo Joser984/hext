@@ -52,36 +52,9 @@ class PadCaseRecord {
       return null;
     }
 
-    String norm(String? value) => (value ?? '')
-        .trim()
-        .toLowerCase()
-        .replaceAll('_', ' ')
-        .replaceAll('-', ' ')
-        .replaceAll(RegExp(r'\s+'), ' ');
-
     // Normalización de campos clave
     final String barrioRaw = (map['barrio'] as String? ?? '').trim();
     final String barrio = barrioRaw.isEmpty ? '' : barrioRaw;
-
-    final String? tipoCaptacionPadRaw = map['tipoCaptacionPad'] as String?;
-    final String? tipoCaptacionPad = tipoCaptacionPadRaw == null
-        ? null
-        : norm(tipoCaptacionPadRaw);
-
-    final String? grupoRelacionadoRiesgoRaw = map['grupoRelacionadoRiesgo'] as String?;
-    final String? grupoRelacionadoRiesgo = grupoRelacionadoRiesgoRaw == null
-        ? null
-        : norm(grupoRelacionadoRiesgoRaw);
-
-    final String? origenPacienteRaw = map['origenPaciente'] as String?;
-    final String? origenPaciente = origenPacienteRaw == null
-        ? null
-        : norm(origenPacienteRaw);
-
-    final String? especialidadPrincipalTratanteRaw = map['especialidadPrincipalTratante'] as String?;
-    final String? especialidadPrincipalTratante = especialidadPrincipalTratanteRaw == null
-        ? null
-        : norm(especialidadPrincipalTratanteRaw);
 
     return PadCaseRecord(
       barrio: barrio,

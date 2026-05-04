@@ -6,8 +6,13 @@ import 'package:hext/core/catalog/pad_labels.dart';
 import 'package:hext/core/repositories/ops_firestore_repo.dart';
 import 'package:hext/core/repositories/caso_paciente_repo.dart';
 import 'package:hext/core/models/caso_paciente.dart';
+import 'package:hext/features/dashboard/logic/dashboard_date_range.dart';
+import 'package:hext/features/dashboard/logic/dashboard_operational_forecast.dart';
+import 'package:hext/features/dashboard/logic/dashboard_historical_pattern.dart';
+import 'package:hext/features/dashboard/logic/dashboard_metrics.dart';
+import 'package:hext/features/dashboard/logic/dashboard_real_trend.dart';
 import 'package:hext/features/dashboard/models/dashboard_view_models.dart';
-import 'package:hext/shared/widgets/module_header.dart';
+import 'package:hext/shared/widgets/hext_page_shell.dart';
 import 'package:hext/features/dashboard/widgets/dashboard_common_widgets.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -18,15 +23,13 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-enum DashboardDateFilter { hoy, semana, mes, anio, rango }
-
 class _DashboardScreenState extends State<DashboardScreen> {
-  DashboardDateFilter _selectedFilter = DashboardDateFilter.hoy;
+  DashboardDateFilter _selectedFilter = DashboardDateFilter.semana;
   DateTimeRange? _customRange;
   final OpsFirestoreRepo _opsRepo = OpsFirestoreRepo();
+  final GlobalKey _trendCardKey = GlobalKey();
+  bool _rangeSelectorOpen = false;
 
-  static const Color _pageBg = Color(0xFFF5F6F8);
-  static const Color _cardBg = Colors.white;
   static const Color _borderColor = Color(0xFFE2E6EA);
   static const Color _titleColor = Color(0xFF1F2937);
   static const Color _textColor = Color(0xFF4B5563);
@@ -38,8 +41,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<CandidateItem> _candidatos = <CandidateItem>[];
   List<VisitItem> _visitas = <VisitItem>[];
   List<SimpleEventItem> _noIngresos = <SimpleEventItem>[];
-  List<RecentActivityItem<_ActivityKind>> _actividad =
-      <RecentActivityItem<_ActivityKind>>[];
+  List<RecentActivityItem> _actividad = <RecentActivityItem>[];
   List<DailyPadStatPoint> _dailyStats = <DailyPadStatPoint>[];
   List<DailyPadStatPoint> _trendDailyStats = <DailyPadStatPoint>[];
   Timer? _clockTimer;
@@ -82,17 +84,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _refreshDailyStats() {
-    final DateTimeRange selectedRange = DateTimeRange(
-      start: _resolveDateBounds().start,
-      end: _resolveDateBounds().end,
+    final DateTime now = DateTime.now();
+    final DateBounds selectedBounds = resolveDateBounds(
+      filter: _selectedFilter,
+      now: now,
+      customRange: _customRange,
     );
-    final DateBounds trendBounds = _resolveTrendVisualBounds();
+    final DateBounds trendBounds = resolveTrendVisualBounds(
+      filter: _selectedFilter,
+      now: now,
+      customRange: _customRange,
+    );
+    final DateTimeRange selectedRange = DateTimeRange(
+      start: selectedBounds.start,
+      end: selectedBounds.end,
+    );
     final DateTimeRange trendRange = DateTimeRange(
       start: trendBounds.start,
       end: trendBounds.end,
     );
-    _dailyStats = _buildDailyStatsFromPacientes(_pacientes, selectedRange);
-    _trendDailyStats = _buildDailyStatsFromPacientes(_pacientes, trendRange);
+    _dailyStats = buildDailyStatsFromPacientes(
+      _pacientes,
+      selectedRange,
+      now: now,
+    );
+    _trendDailyStats = buildDailyStatsFromPacientes(
+      _pacientes,
+      trendRange,
+      now: now,
+    );
+  }
+
+  void _scrollToTrendCardIfNeeded() {
+    if (_selectedFilter == DashboardDateFilter.hoy) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final BuildContext? trendContext = _trendCardKey.currentContext;
+      if (trendContext == null) return;
+      Scrollable.ensureVisible(
+        trendContext,
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeOutCubic,
+        alignment: 0.08,
+      );
+    });
   }
 
   void _bindFirestore() {
@@ -117,15 +151,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _actividad = records
               .take(12)
               .map(
-                (OpsVisitRecord r) => RecentActivityItem<_ActivityKind>(
+                (OpsVisitRecord r) => RecentActivityItem(
                   title: r.status.toLowerCase() == 'realizada'
                       ? PadUiLabels.activityApprovedAdmission
                       : PadUiLabels.caseReassessed,
                   subtitle: r.patientName,
                   date: r.date,
                   kind: r.status.toLowerCase() == 'realizada'
-                      ? _ActivityKind.alta
-                      : _ActivityKind.reingreso,
+                      ? ActivityKind.alta
+                      : ActivityKind.reingreso,
                 ),
               )
               .toList();
@@ -180,91 +214,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // --- NUEVA FUNCIÓN PARA DAILY STATS DESDE PACIENTES ---
-  List<DailyPadStatPoint> _buildDailyStatsFromPacientes(
-    List<CensoPaciente> pacientes,
-    DateTimeRange range,
-  ) {
-    DateTime onlyDate(DateTime value) {
-      return DateTime(value.year, value.month, value.day);
-    }
-
-    final start = onlyDate(range.start);
-    final end = onlyDate(range.end);
-
-    final result = <DailyPadStatPoint>[];
-
-    for (
-      var day = start;
-      !day.isAfter(end);
-      day = day.add(const Duration(days: 1))
-    ) {
-      final amanecen = pacientes.where((p) {
-        final ingreso = _parseDateFlexible(p.fechaIngreso);
-        if (ingreso == null) return false;
-        final ingresoDay = onlyDate(ingreso);
-        final egreso = _parseDateFlexible(p.fechaEgreso);
-        final egresoDay = egreso == null ? null : onlyDate(egreso);
-        final yaIngreso = !ingresoDay.isAfter(day);
-        final noHaEgresadoAntesDelDia =
-            egresoDay == null || egresoDay.isAfter(day);
-        return yaIngreso && noHaEgresadoAntesDelDia;
-      }).length;
-
-      final egresan = pacientes.where((p) {
-        final egreso = _parseDateFlexible(p.fechaEgreso);
-        if (egreso == null) return false;
-        final egresoDay = onlyDate(egreso);
-        return egresoDay == day;
-      }).length;
-
-      if (amanecen > 0 || egresan > 0) {
-        result.add(
-          DailyPadStatPoint(date: day, amanecen: amanecen, egresan: egresan),
-        );
-      }
-    }
-
-    return result;
-  }
-
-  // Helper para parsear fechas flexiblemente
-  DateTime? _parseDateFlexible(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    if (value is String) {
-      try {
-        return DateTime.parse(value);
-      } catch (_) {
-        return null;
-      }
-    }
-    // Firestore Timestamp
-    if (value.runtimeType.toString() == 'Timestamp' && value.toDate != null) {
-      try {
-        return value.toDate();
-      } catch (_) {
-        return null;
-      }
-    }
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final DateBounds bounds = _resolveDateBounds();
+    final DateBounds bounds = resolveDateBounds(
+      filter: _selectedFilter,
+      now: DateTime.now(),
+      customRange: _customRange,
+    );
 
-    final List<CandidateItem> candidatos = _filterByRange<CandidateItem>(
+    final List<CandidateItem> candidatos = filterByRange<CandidateItem>(
       _candidatos,
       bounds,
       (CandidateItem item) => item.date,
     );
-    final List<VisitItem> visitas = _filterByRange<VisitItem>(
+    final List<VisitItem> visitas = filterByRange<VisitItem>(
       _visitas,
       bounds,
       (VisitItem item) => item.date,
     );
     final DateTime now = DateTime.now();
-    final NowSnapshot<_NowState> nowSnapshot = _buildNowSnapshot(
+    final NowSnapshot nowSnapshot = _buildNowSnapshot(
       source: _visitas,
       now: now,
     );
@@ -272,25 +241,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
       source: visitas,
       now: now,
     );
-    final List<SimpleEventItem> noIngresos = _filterByRange<SimpleEventItem>(
+    final List<SimpleEventItem> noIngresos = filterByRange<SimpleEventItem>(
       _noIngresos,
       bounds,
       (SimpleEventItem item) => item.date,
     );
-    final List<RecentActivityItem<_ActivityKind>> actividad =
-        _filterByRange<RecentActivityItem<_ActivityKind>>(
+    final List<RecentActivityItem> actividad =
+        filterByRange<RecentActivityItem>(
           _actividad,
           bounds,
-          (RecentActivityItem<_ActivityKind> item) => item.date,
+          (RecentActivityItem item) => item.date,
         );
     final List<DailyPadStatPoint> dailyStats =
-        _filterByRange<DailyPadStatPoint>(
+        filterByRange<DailyPadStatPoint>(
           _dailyStats,
           bounds,
           (DailyPadStatPoint item) => item.date,
         );
 
-    final List<SmallMetric> origenes = _aggregateMetrics(
+    final List<SmallMetric> origenes = aggregateDashboardMetrics(
       labels: <String>[
         PadUiLabels.captureOriginActiveSearch,
         PadUiLabels.captureOriginFromService,
@@ -298,7 +267,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       source: _origenRecords,
       bounds: bounds,
     );
-    final List<SmallMetric> especialidades = _aggregateMetrics(
+    final List<SmallMetric> especialidades = aggregateDashboardMetrics(
       labels: <String>[
         PadUiLabels.specialtyInternalMedicine,
         PadUiLabels.specialtySurgery,
@@ -308,7 +277,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       source: _especialidadRecords,
       bounds: bounds,
     );
-    final List<KpiItem> kpis = _buildKpis(
+    final List<KpiItem> kpis = buildDashboardKpis(
       bounds: bounds,
       pacientes: _pacientes,
       candidatos: candidatos,
@@ -316,7 +285,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       noIngresos: noIngresos,
     );
     final bool secondaryMetricsAllZero =
-        _allMetricsZero(origenes) && _allMetricsZero(especialidades);
+        allDashboardMetricsZero(origenes) &&
+        allDashboardMetricsZero(especialidades);
     final int nonZeroDailyPoints = dailyStats
         .where((p) => (p.amanecen + p.egresan) > 0)
         .length;
@@ -329,100 +299,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
         secondaryMetricsAllZero &&
         nonZeroDailyPoints <= 1;
 
-    return Container(
-      color: _pageBg,
-      child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              _buildTopHeader(context, bounds),
-              const SizedBox(height: 20),
-              _buildKpiSection(kpis),
-              const SizedBox(height: 24),
-              _buildNowCard(now: now, snapshot: nowSnapshot),
+    return HextPageShell(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _buildTopHeader(context, bounds),
+            _buildKpiSection(kpis),
+            const SizedBox(height: 24),
+            _buildNowCard(now: now, snapshot: nowSnapshot),
+            const SizedBox(height: 24),
+            _ResponsiveTwoColumn(
+              left: _buildVisitsCard(proximas),
+              right: _buildActivityCard(actividad),
+            ),
+            if (!lowDensityMode) ...<Widget>[
               const SizedBox(height: 24),
               _ResponsiveTwoColumn(
-                left: _buildVisitsCard(proximas),
-                right: _buildActivityCard(actividad),
+                left: _buildSmallMetricsCard(
+                  title: PadUiLabels.captureOriginSectionTitle,
+                  metrics: origenes,
+                ),
+                right: _buildSmallMetricsCard(
+                  title: PadUiLabels.specialtiesSectionTitle,
+                  metrics: especialidades,
+                ),
               ),
-              if (!lowDensityMode) ...<Widget>[
-                const SizedBox(height: 24),
-                _ResponsiveTwoColumn(
-                  left: _buildSmallMetricsCard(
-                    title: PadUiLabels.captureOriginSectionTitle,
-                    metrics: origenes,
-                  ),
-                  right: _buildSmallMetricsCard(
-                    title: PadUiLabels.specialtiesSectionTitle,
-                    metrics: especialidades,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _ResponsiveTwoColumn(
-                  left: _buildCandidatesCard(candidatos),
-                  right: _buildNoIngresosCard(noIngresos),
-                ),
-              ] else ...<Widget>[
-                const SizedBox(height: 20),
-                SectionCard(
-                  title: 'Vista operativa compacta',
-                  subtitle:
-                      'Actividad baja: se prioriza la capa operativa superior.',
-                  child: _buildActionableEmptyState(
-                    title:
-                        'Sin señales operativas secundarias relevantes para este corte.',
-                    ctaLabel: 'Revisar agenda completa',
-                    onTap: () => context.go('/schedule'),
-                  ),
-                ),
-              ],
               const SizedBox(height: 24),
-              _buildDailyBehaviorCard(
+              _ResponsiveTwoColumn(
+                left: _buildCandidatesCard(candidatos),
+                right: _buildNoIngresosCard(noIngresos),
+              ),
+            ] else ...<Widget>[
+              const SizedBox(height: 20),
+              SectionCard(
+                title: 'Vista operativa compacta',
+                subtitle:
+                    'Actividad baja: se prioriza la capa operativa superior.',
+                child: _buildActionableEmptyState(
+                  title:
+                      'Sin señales operativas secundarias relevantes para este corte.',
+                  ctaLabel: 'Revisar agenda completa',
+                  onTap: () => context.go('/schedule'),
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+            KeyedSubtree(
+              key: _trendCardKey,
+              child: _buildDailyBehaviorCard(
                 _trendDailyStats,
                 compactMode: lowDensityMode || nonZeroDailyPoints <= 2,
               ),
-            ],
-          ),
-        ),
-      ),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  bool _allMetricsZero(List<SmallMetric> metrics) {
-    for (final SmallMetric metric in metrics) {
-      final int? value = int.tryParse(metric.value.trim());
-      if ((value ?? 0) > 0) return false;
-    }
-    return true;
-  }
-
   Widget _buildTopHeader(BuildContext context, DateBounds bounds) {
-    return SurfaceCard(
-      padding: const EdgeInsets.all(18),
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final bool desktop = constraints.maxWidth >= 980;
-          if (desktop) {
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Expanded(
-                  child: ModuleHeader(
-                    title: PadUiLabels.dashboardTitle,
-                    subtitle:
-                        '${PadUiLabels.dashboardSubtitle} · ${_rangeSummaryLabel(bounds)}',
-                  ),
-                ),
-                const SizedBox(width: 16),
-                _buildDateFilters(),
-              ],
-            );
-          }
-          return _buildDateFilters();
-        },
-      ),
+    return HextPageHeader(
+      title: PadUiLabels.dashboardTitle,
+      subtitle:
+          '${PadUiLabels.dashboardSubtitle} · ${_rangeSummaryLabel(bounds)}',
+      trailing: _buildDateFilters(),
     );
   }
 
@@ -530,6 +471,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _onDateFilterSelected(DashboardDateFilter filter) async {
     if (filter == DashboardDateFilter.rango) {
+      if (_rangeSelectorOpen) return;
+      _rangeSelectorOpen = true;
       final DateTime now = DateTime.now();
       final DateTimeRange initial =
           _customRange ??
@@ -542,28 +485,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
             end: DateTime(now.year, now.month, now.day, 23, 59, 59),
           );
 
-      final RangeDialogResult? result = await _openRangeSelector(
-        now: now,
-        initial: initial,
-      );
+      final RangeDialogResult? result;
+      try {
+        result = await _openRangeSelector(
+          now: now,
+          initial: initial,
+        );
+      } finally {
+        _rangeSelectorOpen = false;
+      }
       if (!mounted || result == null) return;
+      final RangeDialogResult rangeResult = result;
 
-      if (result.clear) {
+      if (rangeResult.clear) {
         setState(() {
           _customRange = null;
           _selectedFilter = DashboardDateFilter.hoy;
           _refreshDailyStats();
         });
+        _scrollToTrendCardIfNeeded();
         return;
       }
 
-      if (result.range == null) return;
+      if (rangeResult.range == null) return;
 
       setState(() {
         _selectedFilter = DashboardDateFilter.rango;
-        _customRange = _normalizedDayRange(result.range!);
+        _customRange = normalizedDayRange(rangeResult.range!);
         _refreshDailyStats();
       });
+      _scrollToTrendCardIfNeeded();
       return;
     }
     if (filter == DashboardDateFilter.anio) {
@@ -582,6 +533,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _customRange = DateTimeRange(start: startOfYear, end: endOfNow);
         _refreshDailyStats();
       });
+      _scrollToTrendCardIfNeeded();
       return;
     }
 
@@ -589,6 +541,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _selectedFilter = filter;
       _refreshDailyStats();
     });
+    _scrollToTrendCardIfNeeded();
   }
 
   Future<RangeDialogResult?> _openRangeSelector({
@@ -611,151 +564,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  DateTimeRange _normalizedDayRange(DateTimeRange range) {
-    final DateTime start = DateTime(
-      range.start.year,
-      range.start.month,
-      range.start.day,
-    );
-    final DateTime end = DateTime(
-      range.end.year,
-      range.end.month,
-      range.end.day,
-      23,
-      59,
-      59,
-    );
-    return DateTimeRange(start: start, end: end);
-  }
-
-  DateBounds _resolveDateBounds() {
-    final DateTime now = DateTime.now();
-    final DateTime todayStart = DateTime(now.year, now.month, now.day);
-    final DateTime todayEnd = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      23,
-      59,
-      59,
-    );
-
-    switch (_selectedFilter) {
-      case DashboardDateFilter.hoy:
-        return DateBounds(start: todayStart, end: todayEnd);
-      case DashboardDateFilter.semana:
-        final DateTime weekStart = todayStart.subtract(
-          Duration(days: todayStart.weekday - DateTime.monday),
-        );
-        final DateTime weekEnd = weekStart.add(
-          const Duration(days: 6, hours: 23, minutes: 59, seconds: 59),
-        );
-        return DateBounds(start: weekStart, end: weekEnd);
-      case DashboardDateFilter.mes:
-        final DateTime monthStart = DateTime(now.year, now.month, 1);
-        final DateTime monthEnd = DateTime(
-          now.year,
-          now.month + 1,
-          0,
-          23,
-          59,
-          59,
-        );
-        return DateBounds(start: monthStart, end: monthEnd);
-      case DashboardDateFilter.anio:
-        final DateTime startOfYear = DateTime(now.year, 1, 1);
-        final DateTime endOfNow = DateTime(
-          now.year,
-          now.month,
-          now.day,
-          23,
-          59,
-          59,
-        );
-        return DateBounds(start: startOfYear, end: endOfNow);
-      case DashboardDateFilter.rango:
-        if (_customRange != null) {
-          return DateBounds(
-            start: _customRange!.start,
-            end: _customRange!.end,
-          );
-        }
-        return DateBounds(start: todayStart, end: todayEnd);
-    }
-  }
-
-  DateBounds _resolveTrendVisualBounds() {
-    final DateTime now = DateTime.now();
-    final DateTime todayStart = DateTime(now.year, now.month, now.day);
-    final DateTime todayEnd = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      23,
-      59,
-      59,
-    );
-
-    switch (_selectedFilter) {
-      case DashboardDateFilter.hoy:
-        return DateBounds(start: todayStart, end: todayEnd);
-      case DashboardDateFilter.semana:
-        final DateTime weekStart = todayStart.subtract(
-          Duration(days: todayStart.weekday - DateTime.monday),
-        );
-        DateTime weekEnd = weekStart.add(
-          const Duration(days: 6, hours: 23, minutes: 59, seconds: 59),
-        );
-        if (todayStart.weekday == DateTime.sunday) {
-          weekEnd = weekEnd.add(
-            const Duration(days: 7),
-          );
-        }
-        return DateBounds(start: weekStart, end: weekEnd);
-      case DashboardDateFilter.mes:
-        final DateTime monthStart = DateTime(now.year, now.month, 1);
-        DateTime monthEnd = DateTime(
-          now.year,
-          now.month + 1,
-          0,
-          23,
-          59,
-          59,
-        );
-        final int daysRemainingInMonth = monthEnd.day - todayStart.day;
-        if (daysRemainingInMonth < 7) {
-          monthEnd = monthEnd.add(const Duration(days: 7));
-        }
-        return DateBounds(start: monthStart, end: monthEnd);
-      case DashboardDateFilter.anio:
-        return DateBounds(start: DateTime(now.year, 1, 1), end: todayEnd);
-      case DashboardDateFilter.rango:
-        if (_customRange != null) {
-          return DateBounds(
-            start: _customRange!.start,
-            end: _customRange!.end,
-          );
-        }
-        return DateBounds(start: todayStart, end: todayEnd);
-    }
-  }
-
-  List<T> _filterByRange<T>(
-    List<T> source,
-    DateBounds bounds,
-    DateTime Function(T item) dateOf,
-  ) {
-    return source.where((T item) {
-      final DateTime date = dateOf(item);
-      return !date.isBefore(bounds.start) && !date.isAfter(bounds.end);
-    }).toList();
-  }
-
-  NowSnapshot<_NowState> _buildNowSnapshot({
+  NowSnapshot _buildNowSnapshot({
     required List<VisitItem> source,
     required DateTime now,
   }) {
-    final List<VisitNowItem<_NowState>> items = <VisitNowItem<_NowState>>[];
+    final List<VisitNowItem> items = <VisitNowItem>[];
     VisitItem? nextVisit;
 
     for (final VisitItem visit in source) {
@@ -768,7 +581,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (now.isAfter(visit.date) && now.isBefore(end)) {
         items.add(
-          VisitNowItem<_NowState>(visit: visit, state: _NowState.enCurso),
+          VisitNowItem(visit: visit, state: NowState.enCurso),
         );
         continue;
       }
@@ -777,7 +590,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final int minutes = visit.date.difference(now).inMinutes;
         if (minutes <= 30) {
           items.add(
-            VisitNowItem<_NowState>(visit: visit, state: _NowState.porIniciar),
+            VisitNowItem(visit: visit, state: NowState.porIniciar),
           );
         }
         if (nextVisit == null || visit.date.isBefore(nextVisit.date)) {
@@ -788,17 +601,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (now.isAfter(end)) {
         items.add(
-          VisitNowItem<_NowState>(visit: visit, state: _NowState.retrasada),
+          VisitNowItem(visit: visit, state: NowState.retrasada),
         );
       }
     }
 
     items.sort(
-      (VisitNowItem<_NowState> a, VisitNowItem<_NowState> b) =>
+      (VisitNowItem a, VisitNowItem b) =>
           a.visit.date.compareTo(b.visit.date),
     );
 
-    return NowSnapshot<_NowState>(items: items, nextVisit: nextVisit);
+    return NowSnapshot(items: items, nextVisit: nextVisit);
   }
 
   List<VisitItem> _buildUpcomingVisits({
@@ -814,163 +627,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool _sameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
-  List<SmallMetric> _aggregateMetrics({
-    required List<String> labels,
-    required List<MetricEvent> source,
-    required DateBounds bounds,
-  }) {
-    final List<MetricEvent> filtered = _filterByRange<MetricEvent>(
-      source,
-      bounds,
-      (MetricEvent item) => item.date,
-    );
-    return labels.map((String label) {
-      final int count = filtered
-          .where((MetricEvent e) => e.label == label)
-          .length;
-      return SmallMetric(label: label, value: '$count');
-    }).toList();
-  }
-
-  // Catálogo de causas válidas de reingreso
-  static const List<String> causasReingresoValidas = <String>[
-    'COMORBILIDADES DESCOMPENSADAS',
-    'FACTORES SOCIALES O DE SOPORTE NO FAVORABLES',
-    'NECESIDAD DE ESCALAMIENTO DEL NIVEL DE ATENCIÓN POR EVOLUCIÓN CLÍNICA',
-    'PROGRESIÓN DE LA PATOLOGÍA DE BASE',
-    'REQUERIMIENTO DE ATENCIÓN INTRAHOSPITALARIA',
-    'REACCION ADVERSA A MEDICAMENTO',
-    'NO AVAL ADMINISTRATIVO',
-  ];
-
-  List<KpiItem> _buildKpis({
-    required DateBounds bounds,
-    required List<CensoPaciente> pacientes,
-    required List<CandidateItem> candidatos,
-    required List<VisitItem> visitas,
-    required List<SimpleEventItem> noIngresos,
-  }) {
-    final List<CensoPaciente> enRango = pacientes.where((p) {
-      final DateTime? ingreso = p.fechaIngreso;
-      final DateTime? egreso = p.fechaEgreso;
-      if (ingreso == null) return false;
-      return !ingreso.isAfter(bounds.end) &&
-          (egreso == null || !egreso.isBefore(bounds.start));
-    }).toList();
-
-    final int pacientesActuales = enRango.where((p) {
-      return p.fechaEgreso == null || p.fechaEgreso!.isAfter(bounds.end);
-    }).length;
-
-    // Ingresos: pacientes con fechaIngreso dentro del rango
-    final int ingresos = pacientes.where((p) {
-      final DateTime? ingreso = p.fechaIngreso;
-      return ingreso != null &&
-          !ingreso.isBefore(bounds.start) &&
-          !ingreso.isAfter(bounds.end);
-    }).length;
-
-    String? getCausaReingresoOtro(dynamic p) {
-      try {
-        // Si el modelo se amplía, agregar aquí el acceso seguro
-        if (p != null && p.toJson != null) {
-          final map = p.toJson();
-          if (map is Map && map.containsKey('causaReingresoOtro')) {
-            final val = map['causaReingresoOtro'];
-            if (val is String) return val.trim();
-          }
-        }
-      } catch (_) {}
-      return null;
-    }
-
-    final int reingresos = enRango.where((p) {
-      final String? tipoEgreso = p.tipoEgreso?.trim();
-      final String? causaReingreso = p.causaReingreso?.trim();
-      final String? causaReingresoOtro = getCausaReingresoOtro(p);
-      final DateTime? egreso = p.fechaEgreso;
-      final bool esReingresoValido =
-          tipoEgreso == 'Retorno intrahospitalario' &&
-          causaReingreso != null &&
-          causaReingreso.isNotEmpty &&
-          (causaReingreso != 'Otro' ||
-              (causaReingresoOtro != null && causaReingresoOtro.isNotEmpty)) &&
-          egreso != null &&
-          !egreso.isBefore(bounds.start) &&
-          !egreso.isAfter(bounds.end);
-      return esReingresoValido;
-    }).length;
-
-    // Egresos: pacientes con fechaEgreso dentro del rango (incluye reingresos)
-    final int egresos = pacientes.where((p) {
-      final DateTime? egreso = p.fechaEgreso;
-      return egreso != null &&
-          !egreso.isBefore(bounds.start) &&
-          !egreso.isAfter(bounds.end);
-    }).length;
-
-    final List<int> estancias = enRango
-        .where((p) {
-          return p.fechaIngreso != null &&
-              p.fechaEgreso != null &&
-              !p.fechaEgreso!.isBefore(bounds.start) &&
-              !p.fechaEgreso!.isAfter(bounds.end);
-        })
-        .map((p) => p.fechaEgreso!.difference(p.fechaIngreso!).inDays + 1)
-        .toList();
-
-    final double promedioEstancia = estancias.isEmpty
-        ? 0
-        : estancias.reduce((a, b) => a + b) / estancias.length;
-
-    // Movimiento PAD: ingresos + egresos + reingresos + no ingresos
-    final int totalMovimientoPad =
-        ingresos + egresos + reingresos + noIngresos.length;
-
-    return <KpiItem>[
-      KpiItem(
-        label: PadUiLabels.kpiTotalMovement,
-        value: '$totalMovimientoPad',
-        valueColor: const Color(0xFF17726D),
-      ),
-      KpiItem(
-        label: PadUiLabels.kpiCurrentPatients,
-        value: '$pacientesActuales',
-        valueColor: const Color(0xFF1E88E5),
-      ),
-      KpiItem(
-        label: PadUiLabels.kpiDischarges,
-        value: '$egresos',
-        valueColor: const Color(0xFF43A047),
-      ),
-      KpiItem(
-        label: PadUiLabels.kpiReadmissions,
-        value: '$reingresos',
-        valueColor: const Color(0xFF8E24AA),
-      ),
-      KpiItem(
-        label: PadUiLabels.kpiAverageStayDays,
-        value: promedioEstancia.toStringAsFixed(1),
-        valueColor: const Color(0xFF3949AB),
-      ),
-      KpiItem(
-        label: PadUiLabels.kpiNoAdmissions,
-        value: '${noIngresos.length}',
-        valueColor: const Color(0xFFFB8C00),
-      ),
-      KpiItem(
-        label: PadUiLabels.casesPendingDefinition,
-        value: '${candidatos.length}',
-        valueColor: const Color(0xFFE53935),
-      ),
-      KpiItem(
-        label: PadUiLabels.kpiTodayVisits,
-        value: '${visitas.length}',
-        valueColor: const Color(0xFF00897B),
-      ),
-    ];
   }
 
   String _rangeSummaryLabel(DateBounds bounds) {
@@ -1005,11 +661,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return '$hour:$minute';
   }
 
-  String _weekdayLetter(DateTime date) {
-    const List<String> letters = <String>['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-    return letters[date.weekday - 1];
-  }
-
   Widget _buildKpiSection(List<KpiItem> kpis) {
     if (kpis.isEmpty) {
       return Container(
@@ -1034,7 +685,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return SizedBox(
           width: 170,
           height: 112,
-          child: _SurfaceCard(
+          child: SurfaceCard(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1193,7 +844,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildNowCard({
     required DateTime now,
-    required NowSnapshot<_NowState> snapshot,
+    required NowSnapshot snapshot,
   }) {
     return SectionCard(
       title: 'Ahora mismo',
@@ -1203,7 +854,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           : Column(
               children: snapshot.items.asMap().entries.map((entry) {
                 final int index = entry.key;
-                final VisitNowItem<_NowState> item = entry.value;
+                final VisitNowItem item = entry.value;
 
                 return Column(
                   children: <Widget>[
@@ -1416,13 +1067,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     context.go(route);
   }
 
-  String _nowStateLabel(_NowState state) {
+  String _nowStateLabel(NowState state) {
     switch (state) {
-      case _NowState.enCurso:
+      case NowState.enCurso:
         return 'En curso';
-      case _NowState.porIniciar:
+      case NowState.porIniciar:
         return 'Por iniciar';
-      case _NowState.retrasada:
+      case NowState.retrasada:
         return 'Retrasada';
     }
   }
@@ -1603,7 +1254,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildActivityCard(List<RecentActivityItem<_ActivityKind>> actividad) {
+  Widget _buildActivityCard(List<RecentActivityItem> actividad) {
     if (actividad.isEmpty) {
       return SectionCard(
         title: PadUiLabels.recentActivity,
@@ -1622,7 +1273,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         children: actividad.asMap().entries.map((entry) {
           final int index = entry.key;
-          final RecentActivityItem<_ActivityKind> item = entry.value;
+          final RecentActivityItem item = entry.value;
           return Column(
             children: <Widget>[
               if (index > 0) const Divider(height: 1, color: _borderColor),
@@ -1679,13 +1330,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
     List<DailyPadStatPoint> dailyStats, {
     bool compactMode = false,
   }) {
-    final List<MapEntry<String, DailyPadStatPoint>> chartEntries =
-        _buildDailyBehaviorChartEntries(dailyStats);
+    final DateTime now = DateTime.now();
+    final List<HistoricalPadPatternPoint> historicalPattern =
+        buildHistoricalPadPattern(
+          pacientes: _pacientes,
+          now: now,
+        );
+    final List<OperationalForecastPoint> forecastPoints =
+        buildOperationalForecastPoints(
+          realTrend: dailyStats,
+          pattern: historicalPattern,
+          filter: _selectedFilter,
+          now: now,
+          customRange: _customRange,
+        );
+    final List<DailyPadStatPoint> chartSource = mergeRealTrendWithForecast(
+      realTrend: dailyStats,
+      forecast: forecastPoints,
+    );
+    final List<TrendChartEntry> rawChartEntries =
+        buildDailyBehaviorChartEntries(
+          dailyStats: chartSource,
+          selectedFilter: _selectedFilter,
+          now: now,
+          customRange: _customRange,
+        );
+    final List<TrendChartEntry> chartEntries = _selectedFilter ==
+            DashboardDateFilter.semana
+        ? _trimWeeklyTrendEntries(
+            rawChartEntries,
+            now: now,
+            forecastHorizonDays: 2,
+          )
+        : rawChartEntries;
 
     if (chartEntries.isEmpty) {
       return SectionCard(
         title: _dailyBehaviorTitle(),
-        subtitle: _dailyBehaviorSubtitle(),
+        subtitle: _dailyBehaviorForecastSubtitle(),
         child: _buildActionableEmptyState(
           title: 'No hay datos diarios para graficar en este rango.',
           ctaLabel: 'Ver mes actual',
@@ -1695,17 +1377,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     final bool sparse = compactMode || chartEntries.length <= 4;
-    final DateBounds trendBounds = _resolveTrendVisualBounds();
+    final DateBounds trendBounds = resolveTrendVisualBounds(
+      filter: _selectedFilter,
+      now: now,
+      customRange: _customRange,
+    );
     final bool yearlyScale = _selectedFilter == DashboardDateFilter.anio ||
         (_selectedFilter == DashboardDateFilter.rango &&
             trendBounds.end.difference(trendBounds.start).inDays.abs() + 1 > 45);
-    final double chartHeight = sparse ? 190 : 250;
+    final double chartHeight = sparse ? 228 : 296;
     final double pointWidth = yearlyScale ? 96 : 84;
-    final double maxPixels = sparse ? 108 : 172;
+    final double maxPixels = sparse ? 150 : 214;
+    final double barAreaHeight = maxPixels + (sparse ? 26 : 30);
+    final bool hasForecastSeries = chartSource.any(
+      (DailyPadStatPoint point) => point.isForecast,
+    );
+    final _TrendStatusSummary trendStatus = _buildTrendStatusSummary(
+      chartEntries,
+      now,
+    );
 
     final int maxValue = chartEntries
         .map((entry) {
-          final DailyPadStatPoint point = entry.value;
+          final DailyPadStatPoint point = entry.point;
           return point.amanecen > point.egresan
               ? point.amanecen
               : point.egresan;
@@ -1714,7 +1408,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return SectionCard(
       title: _dailyBehaviorTitle(),
-      subtitle: _dailyBehaviorSubtitle(),
+      subtitle: _dailyBehaviorForecastSubtitle(),
       child: Container(
         decoration: BoxDecoration(
           border: Border(
@@ -1725,18 +1419,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            _buildTrendStatusBanner(trendStatus),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _buildTrendFilterSelector(),
+            ),
+            const SizedBox(height: 12),
             Wrap(
               spacing: 18,
               runSpacing: 10,
-              children: const <Widget>[
-                LegendDot(
-                  label: 'Censo inicial',
+              children: <Widget>[
+                const LegendDot(
+                  label: 'Pacientes activos',
                   color: Color(0xFF17726D),
                 ),
-                LegendDot(
+                const LegendDot(
                   label: 'Egresos',
                   color: Color(0xFFB0BEC5),
                 ),
+                if (hasForecastSeries)
+                  const LegendDot(
+                    label: 'Posibles ingresos',
+                    color: Color(0xFF7EA7F8),
+                  ),
               ],
             ),
             SizedBox(height: sparse ? 12 : 18),
@@ -1749,46 +1455,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   runSpacing: 10,
                   alignment: WrapAlignment.center,
                   children: chartEntries.map((entry) {
-                    final DailyPadStatPoint item = entry.value;
+                    final DailyPadStatPoint item = entry.point;
+                    final bool highlightCurrentPeriod =
+                        !now.isBefore(entry.start) && !now.isAfter(entry.end);
                     return SizedBox(
                       width: pointWidth,
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: <Widget>[
                           SizedBox(
-                            height: maxPixels,
+                            height: barAreaHeight,
                             child: Align(
                               alignment: Alignment.bottomCenter,
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: <Widget>[
-                                  Bar(
-                                    value: item.amanecen,
-                                    max: maxValue,
-                                    color: const Color(0xFF17726D),
-                                    compact: true,
-                                    maxPixels: maxPixels,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Bar(
-                                    value: item.egresan,
-                                    max: maxValue,
-                                    color: const Color(0xFFB0BEC5),
-                                    compact: true,
-                                    maxPixels: maxPixels,
-                                  ),
+                                  if (!item.isForecast) ...<Widget>[
+                                    Bar(
+                                      value: item.amanecen,
+                                      max: maxValue,
+                                      color: const Color(0xFF17726D),
+                                      compact: true,
+                                      maxPixels: maxPixels,
+                                      showValue: true,
+                                      valueColor: _titleColor,
+                                      semanticLabel: 'Censo inicial',
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Bar(
+                                      value: item.egresan,
+                                      max: maxValue,
+                                      color: const Color(0xFFB0BEC5),
+                                      compact: true,
+                                      maxPixels: maxPixels,
+                                      showValue: true,
+                                      valueColor: _mutedColor,
+                                      semanticLabel: 'Egresos',
+                                    ),
+                                  ],
+                                  if (item.isForecast) ...<Widget>[
+                                    Bar(
+                                      value: item.amanecen,
+                                      max: maxValue,
+                                      color: const Color(0xFF7EA7F8),
+                                      compact: true,
+                                      maxPixels: maxPixels,
+                                      showValue: true,
+                                      valueColor: const Color(0xFF4D74C9),
+                                      semanticLabel: 'Posibles ingresos',
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            entry.key,
-                            style: TextStyle(
-                              fontSize: sparse ? 12 : 13,
-                              fontWeight: FontWeight.w600,
-                              color: _mutedColor,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: highlightCurrentPeriod
+                                ? BoxDecoration(
+                                    color: const Color(0xFFEAF3FF),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: const Color(0xFFD5E8FF),
+                                    ),
+                                  )
+                                : null,
+                            child: Text(
+                              entry.label,
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              style: TextStyle(
+                                fontSize: sparse ? 11 : 12,
+                                height: 1.15,
+                                fontWeight: FontWeight.w600,
+                                color: highlightCurrentPeriod
+                                    ? const Color(0xFF1E88E5)
+                                    : _mutedColor,
+                              ),
                             ),
                           ),
                         ],
@@ -1804,260 +1552,388 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  List<MapEntry<String, DailyPadStatPoint>> _buildDailyBehaviorChartEntries(
-    List<DailyPadStatPoint> dailyStats,
-  ) {
-    switch (_selectedFilter) {
-      case DashboardDateFilter.hoy:
-      case DashboardDateFilter.semana:
-        return _buildDailyEntriesForWeek(dailyStats);
-      case DashboardDateFilter.mes:
-        return _buildWeeklyEntriesForMonth(dailyStats);
-      case DashboardDateFilter.anio:
-        return _buildMonthlyEntriesForYear(dailyStats);
-      case DashboardDateFilter.rango:
-        final DateBounds bounds = _resolveTrendVisualBounds();
-        final int durationDays =
-            bounds.end.difference(bounds.start).inDays.abs() + 1;
-        return durationDays > 45
-            ? _buildMonthlyEntriesForRange(dailyStats, bounds)
-            : _buildWeeklyEntriesForRange(dailyStats, bounds);
-    }
-  }
-
-  List<MapEntry<String, DailyPadStatPoint>> _buildDailyEntriesForWeek(
-    List<DailyPadStatPoint> dailyStats,
-  ) {
-    final DateBounds bounds = _resolveTrendVisualBounds();
-    final Map<String, DailyPadStatPoint> pointsByDay =
-        <String, DailyPadStatPoint>{
-          for (final DailyPadStatPoint point in dailyStats) _dateKey(point.date): point,
-        };
-    final List<MapEntry<String, DailyPadStatPoint>> entries =
-        <MapEntry<String, DailyPadStatPoint>>[];
-
-    for (
-      DateTime day = DateTime(
-        bounds.start.year,
-        bounds.start.month,
-        bounds.start.day,
-      );
-      !day.isAfter(bounds.end);
-      day = day.add(const Duration(days: 1))
-    ) {
-      final DailyPadStatPoint point =
-          pointsByDay[_dateKey(day)] ??
-          DailyPadStatPoint(date: day, amanecen: 0, egresan: 0);
-      entries.add(
-        MapEntry<String, DailyPadStatPoint>(_weekdayLetter(day), point),
-      );
-    }
-
-    return entries;
-  }
-
-  List<MapEntry<String, DailyPadStatPoint>> _buildWeeklyEntriesForMonth(
-    List<DailyPadStatPoint> dailyStats,
-  ) {
-    final DateBounds bounds = _resolveTrendVisualBounds();
-    final int totalWeeks = ((bounds.end.day - 1) ~/ 7) + 1;
-    final List<MapEntry<String, DailyPadStatPoint>> entries =
-        <MapEntry<String, DailyPadStatPoint>>[];
-
-    for (int week = 1; week <= totalWeeks; week++) {
-      final DateTime start = DateTime(
-        bounds.start.year,
-        bounds.start.month,
-        ((week - 1) * 7) + 1,
-      );
-      final DateTime rawEnd = DateTime(
-        bounds.start.year,
-        bounds.start.month,
-        week * 7,
-        23,
-        59,
-        59,
-      );
-      final DateTime end = rawEnd.isAfter(bounds.end) ? bounds.end : rawEnd;
-      entries.add(
-        MapEntry<String, DailyPadStatPoint>(
-          'S$week',
-          _aggregateDailyStatsGroup(dailyStats, start: start, end: end),
-        ),
-      );
-    }
-
-    return entries;
-  }
-
-  List<MapEntry<String, DailyPadStatPoint>> _buildMonthlyEntriesForYear(
-    List<DailyPadStatPoint> dailyStats,
-  ) {
-    final DateBounds bounds = _resolveTrendVisualBounds();
-    final List<MapEntry<String, DailyPadStatPoint>> entries =
-        <MapEntry<String, DailyPadStatPoint>>[];
-
-    for (int month = 1; month <= 12; month++) {
-      final DateTime start = DateTime(bounds.start.year, month, 1);
-      if (start.isAfter(bounds.end)) break;
-      final DateTime rawEnd = DateTime(
-        bounds.start.year,
-        month + 1,
-        0,
-        23,
-        59,
-        59,
-      );
-      final DateTime end = rawEnd.isAfter(bounds.end) ? bounds.end : rawEnd;
-      entries.add(
-        MapEntry<String, DailyPadStatPoint>(
-          _monthLabel(month),
-          _aggregateDailyStatsGroup(dailyStats, start: start, end: end),
-        ),
-      );
-    }
-
-    return entries;
-  }
-
-  List<MapEntry<String, DailyPadStatPoint>> _buildWeeklyEntriesForRange(
-    List<DailyPadStatPoint> dailyStats,
-    DateBounds bounds,
-  ) {
-    final DateTime startDate = DateTime(
-      bounds.start.year,
-      bounds.start.month,
-      bounds.start.day,
-    );
-    final List<MapEntry<String, DailyPadStatPoint>> entries =
-        <MapEntry<String, DailyPadStatPoint>>[];
-    int weekIndex = 1;
-
-    for (
-      DateTime start = startDate;
-      !start.isAfter(bounds.end);
-      start = start.add(const Duration(days: 7)), weekIndex++
-    ) {
-      final DateTime rawEnd = start.add(
-        const Duration(days: 6, hours: 23, minutes: 59, seconds: 59),
-      );
-      final DateTime end = rawEnd.isAfter(bounds.end) ? bounds.end : rawEnd;
-      entries.add(
-        MapEntry<String, DailyPadStatPoint>(
-          'S$weekIndex',
-          _aggregateDailyStatsGroup(dailyStats, start: start, end: end),
-        ),
-      );
-    }
-
-    return entries;
-  }
-
-  List<MapEntry<String, DailyPadStatPoint>> _buildMonthlyEntriesForRange(
-    List<DailyPadStatPoint> dailyStats,
-    DateBounds bounds,
-  ) {
-    DateTime cursor = DateTime(bounds.start.year, bounds.start.month, 1);
-    final List<MapEntry<String, DailyPadStatPoint>> entries =
-        <MapEntry<String, DailyPadStatPoint>>[];
-
-    while (!cursor.isAfter(bounds.end)) {
-      final DateTime start = cursor.isBefore(bounds.start)
-          ? bounds.start
-          : cursor;
-      final DateTime rawEnd = DateTime(
-        cursor.year,
-        cursor.month + 1,
-        0,
-        23,
-        59,
-        59,
-      );
-      final DateTime end = rawEnd.isAfter(bounds.end) ? bounds.end : rawEnd;
-      entries.add(
-        MapEntry<String, DailyPadStatPoint>(
-          _monthLabel(cursor.month),
-          _aggregateDailyStatsGroup(dailyStats, start: start, end: end),
-        ),
-      );
-      cursor = DateTime(cursor.year, cursor.month + 1, 1);
-    }
-
-    return entries;
-  }
-
-  DailyPadStatPoint _aggregateDailyStatsGroup(
-    List<DailyPadStatPoint> dailyStats, {
-    required DateTime start,
-    required DateTime end,
-  }) {
-    final List<DailyPadStatPoint> points = dailyStats.where((point) {
-      return !point.date.isBefore(start) && !point.date.isAfter(end);
-    }).toList()..sort((a, b) => a.date.compareTo(b.date));
-
-    if (points.isEmpty) {
-      return DailyPadStatPoint(date: start, amanecen: 0, egresan: 0);
-    }
-
-    final int egresan = points.fold<int>(
-      0,
-      (sum, point) => sum + point.egresan,
-    );
-    final DailyPadStatPoint lastPoint = points.last;
-    return DailyPadStatPoint(
-      date: lastPoint.date,
-      amanecen: lastPoint.amanecen,
-      egresan: egresan,
-    );
-  }
-
-  String _dateKey(DateTime date) => '${date.year}-${date.month}-${date.day}';
-
-  String _monthLabel(int month) {
-    const List<String> labels = <String>[
-      'Ene',
-      'Feb',
-      'Mar',
-      'Abr',
-      'May',
-      'Jun',
-      'Jul',
-      'Ago',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dic',
+  Widget _buildTrendFilterSelector() {
+    const List<DashboardDateFilter> filters = <DashboardDateFilter>[
+      DashboardDateFilter.semana,
+      DashboardDateFilter.mes,
+      DashboardDateFilter.anio,
+      DashboardDateFilter.rango,
     ];
-    return labels[month - 1];
+
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: filters.map((DashboardDateFilter filter) {
+        final bool selected = _selectedFilter == filter;
+        return InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _onDateFilterSelected(filter),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: selected ? const Color(0xFFE8F3F1) : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected ? _primary : _borderColor,
+              ),
+            ),
+            child: Text(
+              _filterLabel(filter),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: selected ? _primary : _mutedColor,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
   }
 
   String _dailyBehaviorTitle() {
     switch (_selectedFilter) {
       case DashboardDateFilter.hoy:
-        return 'Tendencia PAD de hoy';
+        return 'Tendencia PAD';
       case DashboardDateFilter.semana:
-        return 'Tendencia PAD semanal';
+        return 'Tendencia PAD';
       case DashboardDateFilter.mes:
-        return 'Tendencia PAD mensual';
+        return 'Tendencia PAD';
       case DashboardDateFilter.anio:
-        return 'Tendencia PAD anual';
+        return 'Tendencia PAD';
       case DashboardDateFilter.rango:
-        return 'Tendencia PAD personalizada';
+        return 'Tendencia PAD';
     }
   }
 
-  String _dailyBehaviorSubtitle() {
+  String _dailyBehaviorForecastSubtitle() =>
+      'Actividad real y posibles ingresos según patrón histórico';
+
+  List<TrendChartEntry> _trimWeeklyTrendEntries(
+    List<TrendChartEntry> entries, {
+    required DateTime now,
+    required int forecastHorizonDays,
+  }) {
+    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime cutoff = today.add(Duration(days: forecastHorizonDays));
+
+    return entries.where((TrendChartEntry entry) {
+      final DateTime start = DateTime(
+        entry.start.year,
+        entry.start.month,
+        entry.start.day,
+      );
+      return !start.isAfter(cutoff);
+    }).toList();
+  }
+
+  Widget _buildTrendStatusBanner(_TrendStatusSummary summary) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: summary.backgroundColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: summary.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            summary.label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: summary.textColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            summary.primaryTitle,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: summary.textColor,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            summary.primaryMessage,
+            style: TextStyle(
+              fontSize: 12.5,
+              height: 1.25,
+              color: summary.textColor,
+            ),
+          ),
+          if (summary.secondaryTitle != null &&
+              summary.secondaryMessage != null)
+            ...<Widget>[
+              const SizedBox(height: 10),
+              Text(
+                summary.secondaryTitle!,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: summary.textColor,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                summary.secondaryMessage!,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1.25,
+                  color: summary.textColor,
+                ),
+              ),
+            ],
+          if (summary.tertiaryTitle != null && summary.tertiaryMessage != null)
+            ...<Widget>[
+              const SizedBox(height: 10),
+              Text(
+                summary.tertiaryTitle!,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: summary.textColor,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                summary.tertiaryMessage!,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1.25,
+                  color: summary.textColor,
+                ),
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+
+  _TrendStatusSummary _buildTrendStatusSummary(
+    List<TrendChartEntry> chartEntries,
+    DateTime now,
+  ) {
+    const int simultaneousGoal = 20;
+    final bool hasForecastPoints = chartEntries.any(
+      (TrendChartEntry entry) => entry.point.isForecast,
+    );
+    final int currentSimultaneousCensus = _countCurrentSimultaneousCensus(now);
+    final int missingForGoal = simultaneousGoal - currentSimultaneousCensus;
+    final String censusMessage =
+        'Censo simultáneo: $currentSimultaneousCensus de $simultaneousGoal pacientes en extensión hospitalaria.';
+    final String objectiveMessage = currentSimultaneousCensus >= simultaneousGoal
+        ? 'Objetivo operativo cumplido.'
+        : 'Faltan $missingForGoal para alcanzar el objetivo operativo.';
+
+    final DateBounds currentBounds = resolveDateBounds(
+      filter: _selectedFilter,
+      now: now,
+      customRange: _customRange,
+    );
+    final DateBounds previousBounds = _resolvePreviousPeriodBounds(
+      filter: _selectedFilter,
+      bounds: currentBounds,
+    );
+    final int currentMovement = _countVisibleRealMovement(chartEntries);
+    final int previousMovement = _countVisibleRealMovement(
+      _buildComparableChartEntries(previousBounds),
+    );
+    final bool hasComparableBase = _hasComparablePeriodData(previousBounds);
+    final String comparisonLabel = _comparisonPeriodLabel();
+    final String movementStatus;
+    if (!hasComparableBase) {
+      movementStatus =
+          'Sin base comparativa suficiente para el período anterior.';
+    } else if (currentMovement > previousMovement) {
+      movementStatus = 'Movimiento superior al período anterior.';
+    } else if (currentMovement == previousMovement) {
+      movementStatus = 'Movimiento igual al período anterior.';
+    } else {
+      movementStatus = 'Movimiento por debajo del período anterior.';
+    }
+
+    return _TrendStatusSummary(
+      label: 'Lectura operativa',
+      primaryTitle: 'Meta operativa',
+      primaryMessage: '$censusMessage $objectiveMessage',
+      secondaryTitle: 'Movimiento real del período',
+      secondaryMessage: hasComparableBase
+          ? 'Movimiento real: $currentMovement. $comparisonLabel: $previousMovement. $movementStatus'
+          : 'Movimiento real: $currentMovement. $movementStatus',
+      tertiaryTitle: hasForecastPoints ? 'Anticipación' : null,
+      tertiaryMessage: hasForecastPoints
+          ? 'Posibles ingresos próximos 2 días según patrón histórico.'
+          : null,
+      backgroundColor: const Color(0xFFF6F7F8),
+      borderColor: const Color(0xFFE3E7EB),
+      textColor: _textColor,
+    );
+  }
+
+  DateBounds _resolvePreviousPeriodBounds({
+    required DashboardDateFilter filter,
+    required DateBounds bounds,
+  }) {
+    switch (filter) {
+      case DashboardDateFilter.hoy:
+        final DateTime previousDay = bounds.start.subtract(
+          const Duration(days: 1),
+        );
+        return DateBounds(
+          start: DateTime(
+            previousDay.year,
+            previousDay.month,
+            previousDay.day,
+          ),
+          end: DateTime(
+            previousDay.year,
+            previousDay.month,
+            previousDay.day,
+            23,
+            59,
+            59,
+          ),
+        );
+      case DashboardDateFilter.semana:
+        final DateTime previousWeekStart = bounds.start.subtract(
+          const Duration(days: 7),
+        );
+        return DateBounds(
+          start: previousWeekStart,
+          end: previousWeekStart.add(
+            const Duration(days: 6, hours: 23, minutes: 59, seconds: 59),
+          ),
+        );
+      case DashboardDateFilter.mes:
+        final DateTime previousMonthStart = DateTime(
+          bounds.start.year,
+          bounds.start.month - 1,
+          1,
+        );
+        return DateBounds(
+          start: previousMonthStart,
+          end: DateTime(
+            previousMonthStart.year,
+            previousMonthStart.month + 1,
+            0,
+            23,
+            59,
+            59,
+          ),
+        );
+      case DashboardDateFilter.anio:
+        return DateBounds(
+          start: DateTime(bounds.start.year - 1, 1, 1),
+          end: DateTime(bounds.start.year - 1, 12, 31, 23, 59, 59),
+        );
+      case DashboardDateFilter.rango:
+        final int durationDays =
+            bounds.end.difference(bounds.start).inDays.abs() + 1;
+        final DateTime previousEnd = DateTime(
+          bounds.start.year,
+          bounds.start.month,
+          bounds.start.day,
+          23,
+          59,
+          59,
+        ).subtract(const Duration(days: 1));
+        final DateTime previousStart = DateTime(
+          previousEnd.year,
+          previousEnd.month,
+          previousEnd.day,
+        ).subtract(Duration(days: durationDays - 1));
+        return DateBounds(start: previousStart, end: previousEnd);
+    }
+  }
+
+  int _countVisibleRealMovement(List<TrendChartEntry> entries) {
+    return entries.where((TrendChartEntry entry) => !entry.point.isForecast).fold(
+      0,
+      (int sum, TrendChartEntry entry) =>
+          sum + entry.point.amanecen + entry.point.egresan,
+    );
+  }
+
+  List<TrendChartEntry> _buildComparableChartEntries(DateBounds bounds) {
+    final DateTime referenceNow = DateTime(
+      bounds.end.year,
+      bounds.end.month,
+      bounds.end.day,
+    );
+    final DateTimeRange range = DateTimeRange(
+      start: bounds.start,
+      end: bounds.end,
+    );
+    final List<DailyPadStatPoint> stats = buildDailyStatsFromPacientes(
+      _pacientes,
+      range,
+      now: referenceNow,
+    );
+
+    return buildDailyBehaviorChartEntries(
+      dailyStats: stats,
+      selectedFilter: _selectedFilter,
+      now: referenceNow,
+      customRange: _selectedFilter == DashboardDateFilter.rango ? range : null,
+    );
+  }
+
+  bool _hasComparablePeriodData(DateBounds bounds) {
+    return _pacientes.any((CensoPaciente paciente) {
+      final DateTime? ingreso = paciente.fechaIngreso;
+      final DateTime? egreso = paciente.fechaEgreso;
+      final bool hasMovementInBounds =
+          (ingreso != null &&
+              !ingreso.isBefore(bounds.start) &&
+              !ingreso.isAfter(bounds.end)) ||
+          (egreso != null &&
+              !egreso.isBefore(bounds.start) &&
+              !egreso.isAfter(bounds.end));
+      if (hasMovementInBounds) return true;
+      if (ingreso == null) return false;
+
+      return !ingreso.isAfter(bounds.end) &&
+          (egreso == null || !egreso.isBefore(bounds.start));
+    });
+  }
+
+  int _countCurrentSimultaneousCensus(DateTime now) {
+    final DateTime today = DateTime(now.year, now.month, now.day);
+
+    return _pacientes.where((CensoPaciente paciente) {
+      final DateTime? ingreso = paciente.fechaIngreso;
+      if (ingreso == null) return false;
+      final bool admitted = !DateTime(
+        ingreso.year,
+        ingreso.month,
+        ingreso.day,
+      ).isAfter(today);
+
+      final DateTime? egreso = paciente.fechaEgreso;
+      final bool active = egreso == null ||
+          DateTime(egreso.year, egreso.month, egreso.day).isAfter(today);
+
+      return admitted && active;
+    }).length;
+  }
+
+  String _comparisonPeriodLabel() {
     switch (_selectedFilter) {
       case DashboardDateFilter.hoy:
-        return 'Amanecen vs egresan por hora';
+        return 'Día anterior';
       case DashboardDateFilter.semana:
-        return 'Amanecen vs egresan por día';
+        return 'Semana anterior';
       case DashboardDateFilter.mes:
-        return 'Amanecen vs egresan por semana';
+        return 'Mes anterior';
       case DashboardDateFilter.anio:
-        return 'Amanecen vs egresan por mes';
+        return 'Año anterior';
       case DashboardDateFilter.rango:
-        return 'Amanecen vs egresan según rango seleccionado';
+        return 'Rango anterior equivalente';
     }
   }
 
@@ -2068,46 +1944,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(Icons.info_outline, size: 18, color: Color(0xFF6B7280)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: _mutedColor,
-                  ),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: _mutedColor,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 34,
+            child: OutlinedButton.icon(
+              onPressed: onTap,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _primary,
+                side: const BorderSide(color: _borderColor),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
                 ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 34,
-                  child: OutlinedButton.icon(
-                    onPressed: onTap,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _primary,
-                      side: const BorderSide(color: _borderColor),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                    icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                    label: Text(ctaLabel),
-                  ),
-                ),
-              ],
+              ),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+              label: Text(ctaLabel),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class _TrendStatusSummary {
+  final String label;
+  final String primaryTitle;
+  final String primaryMessage;
+  final String? secondaryTitle;
+  final String? secondaryMessage;
+  final String? tertiaryTitle;
+  final String? tertiaryMessage;
+  final Color backgroundColor;
+  final Color borderColor;
+  final Color textColor;
+
+  const _TrendStatusSummary({
+    required this.label,
+    this.primaryTitle = 'Meta operativa',
+    required this.primaryMessage,
+    this.secondaryTitle,
+    this.secondaryMessage,
+    this.tertiaryTitle,
+    this.tertiaryMessage,
+    required this.backgroundColor,
+    required this.borderColor,
+    required this.textColor,
+  });
 }
 
 class _ResponsiveTwoColumn extends StatelessWidget {
@@ -2469,6 +2362,3 @@ class _CompactRangeDialogState extends State<_CompactRangeDialog> {
   }
 }
 
-enum _ActivityKind { alta, reingreso }
-
-enum _NowState { enCurso, porIniciar, retrasada }

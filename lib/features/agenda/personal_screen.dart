@@ -1,3 +1,4 @@
+import 'package:hext/app/hext_design_system.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -9,7 +10,8 @@ import 'package:hext/core/repositories/in_memory_novedades_repo.dart';
 import 'package:hext/core/repositories/in_memory_personal_repo.dart';
 import 'package:hext/shared/widgets/agenda_subnav.dart';
 import 'package:hext/shared/widgets/app_chip.dart';
-import 'package:hext/shared/widgets/module_header.dart';
+import 'package:hext/shared/widgets/hext_logo.dart';
+import 'package:hext/shared/widgets/hext_page_shell.dart';
 
 // Convierte un string a 'Title Case' (iniciales en mayúscula)
 String toTitleCase(String text) {
@@ -57,74 +59,55 @@ class _PersonalScreenState extends State<PersonalScreen> {
         context.watch<InMemoryNovedadesRepo>();
     final List<AuxiliarDomiciliario> items = repo.items;
 
-    return Container(
-      color: const Color(0xFFF5F7FA),
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final double horizontalPadding =
-              constraints.maxWidth >= 900 ? 16 : 12;
-          final double topScrollOffset = constraints.maxWidth >= 900 ? 8 : 6;
-
-          return Padding(
-            padding: EdgeInsets.only(top: topScrollOffset),
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                14,
-                horizontalPadding,
-                28,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const ModuleHeader(
-                    title: 'Personal',
-                    subtitle:
-                        'Gestión de auxiliares, novedades laborales y estado operativo.',
-                  ),
-                  const SizedBox(height: 10),
-                  _SubnavWithAction(onAdd: () => _openForm(context)),
-                  const SizedBox(height: 12),
-                  _HeaderSummary(items: items),
-                  const SizedBox(height: 12),
-                  if (items.isEmpty)
-                    _EmptyState(onAdd: () => _openForm(context))
-                  else
-                    Column(
-                      children: items
-                          .map(
-                            (AuxiliarDomiciliario item) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _AuxiliarCard(
-                                auxiliar: item,
-                                novedadesActivas:
-                                    novedadesRepo.activeForAuxiliar(item.id),
-                                alertaVacaciones:
-                                    novedadesRepo.vacacionesVencidas(
-                                  auxiliarId: item.id,
-                                  fechaIngreso: item.fechaIngreso,
-                                ),
-                                onEdit: () =>
-                                    _openForm(context, auxiliar: item),
-                                onDelete: () => _confirmDelete(context, item),
-                                onToggleActivo: (bool value) {
-                                  context
-                                      .read<InMemoryPersonalRepo>()
-                                      .toggleActivo(item.id, value);
-                                },
-                                onGestionarNovedades: () =>
-                                    _openNovedades(context, item),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                ],
+    return HextPageShell(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            HextPageHeader(
+              title: 'Auxiliares',
+              subtitle:
+                  'Gestión de auxiliares, novedades laborales y estado operativo.',
+              trailing: _HeaderActionButton(onAdd: () => _openForm(context)),
+              tabs: const AgendaSubnav(
+                section: AgendaSubnavSection.auxiliares,
               ),
             ),
-          );
-        },
-      ),
+            _HeaderSummary(items: items),
+            const SizedBox(height: 12),
+            if (items.isEmpty)
+              _EmptyState(onAdd: () => _openForm(context))
+            else
+              Column(
+                children: items
+                    .map(
+                      (AuxiliarDomiciliario item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _AuxiliarCard(
+                          auxiliar: item,
+                          novedadesActivas:
+                              novedadesRepo.activeForAuxiliar(item.id),
+                          alertaVacaciones: novedadesRepo.vacacionesVencidas(
+                            auxiliarId: item.id,
+                            fechaIngreso: item.fechaIngreso,
+                          ),
+                          onEdit: () => _openForm(context, auxiliar: item),
+                          onDelete: () => _confirmDelete(context, item),
+                          onToggleActivo: (bool value) {
+                            context
+                                .read<InMemoryPersonalRepo>()
+                                .toggleActivo(item.id, value);
+                          },
+                          onGestionarNovedades: () =>
+                              _openNovedades(context, item),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -197,9 +180,9 @@ class _HeaderSummary extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: HextColors.blanco,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFDCE3EA)),
+        border: Border.all(color: HextColors.bordeSuave),
       ),
       child: Wrap(
         spacing: 8,
@@ -211,7 +194,7 @@ class _HeaderSummary extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF243247),
+              color: HextColors.textoPrincipal,
             ),
           ),
           AppChip(label: 'Total: ${items.length}', tone: AppChipTone.info),
@@ -235,14 +218,14 @@ class _EmptyState extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 420),
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: const Color(0xFFF7F8FA),
+          color: HextColors.fondoTarjeta,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE3E7EC)),
+          border: Border.all(color: HextColors.bordeTarjeta),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(Icons.groups_outlined, size: 42),
+            const HextLogo(size: 48),
             const SizedBox(height: 12),
             Text(
               'Aún no hay personal registrado',
@@ -292,7 +275,7 @@ class _AuxiliarCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextStyle secondaryStyle =
         (Theme.of(context).textTheme.bodySmall ?? const TextStyle()).copyWith(
-      color: const Color(0xFF8A9199),
+      color: HextColors.textoGris,
       fontSize: 12.5,
     );
 
@@ -304,14 +287,14 @@ class _AuxiliarCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: HextColors.blanco,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFDCE3EA)),
+        border: Border.all(color: HextColors.bordeSuave),
         boxShadow: const <BoxShadow>[
           BoxShadow(
             blurRadius: 8,
             offset: Offset(0, 2),
-            color: Color(0x08000000),
+            color: Color(0x08000000), // unchanged, shadow
           ),
         ],
       ),
@@ -330,7 +313,7 @@ class _AuxiliarCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF243247),
+                    color: HextColors.textoPrincipal,
                   ),
                 ),
                 if (alertWidgets.isNotEmpty) ...<Widget>[
@@ -367,7 +350,7 @@ class _AuxiliarCard extends StatelessWidget {
                     _CardActionLink(
                       icon: Icons.edit_outlined,
                       label: 'Editar',
-                      color: const Color(0xFF17726D),
+                      color: HextColors.verdePrincipal,
                       onTap: onEdit,
                     ),
                     const SizedBox(width: 14),
@@ -610,7 +593,7 @@ class _NovedadBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: fg.withOpacity(0.40)),
+        border: Border.all(color: fg.withValues(alpha: 0.40)),
       ),
       child: Text(
         '${novedad.estado.label} · ${novedad.tipo.label}',
@@ -1107,7 +1090,7 @@ class _EstadoChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: fg.withOpacity(0.40)),
+        border: Border.all(color: fg.withValues(alpha: 0.40)),
       ),
       child: Text(
         estado.label,
@@ -1285,52 +1268,26 @@ class _AddNovedadDialogState extends State<_AddNovedadDialog> {
   }
 }
 
-class _SubnavWithAction extends StatelessWidget {
-  const _SubnavWithAction({required this.onAdd});
+class _HeaderActionButton extends StatelessWidget {
+  const _HeaderActionButton({required this.onAdd});
 
   final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final Widget actionButton = SizedBox(
-          height: 40,
-          child: FilledButton.icon(
-            onPressed: onAdd,
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF17726D),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('Agregar personal'),
+    return SizedBox(
+      height: 40,
+      child: FilledButton.icon(
+        onPressed: onAdd,
+        style: FilledButton.styleFrom(
+          backgroundColor: const Color(0xFF17726D),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
           ),
-        );
-
-        if (constraints.maxWidth < 900) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              const AgendaSubnav(section: AgendaSubnavSection.auxiliares),
-              const SizedBox(height: 10),
-              actionButton,
-            ],
-          );
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            const Expanded(
-              child: AgendaSubnav(section: AgendaSubnavSection.auxiliares),
-            ),
-            const SizedBox(width: 12),
-            actionButton,
-          ],
-        );
-      },
+        ),
+        icon: const Icon(Icons.add, size: 18),
+        label: const Text('Agregar personal'),
+      ),
     );
   }
 }

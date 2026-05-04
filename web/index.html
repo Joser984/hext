@@ -18,7 +18,7 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="HEXT, plataforma institucional de gestión y cuidado en salud.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -27,12 +27,253 @@
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/x-icon" href="favicon.ico"/>
+
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #17726D;
+    }
+
+    body {
+      overflow: hidden;
+      font-family: "Segoe UI", sans-serif;
+    }
+
+    #hext-web-splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #17726D;
+      z-index: 9999;
+      transition: opacity 220ms ease, transform 220ms ease;
+    }
+
+    #hext-web-splash.hidden {
+      opacity: 0;
+      transform: scale(1.01);
+      pointer-events: none;
+    }
+
+    #hext-web-splash img {
+      width: 120px;
+      height: 120px;
+      object-fit: contain;
+      animation: hextSplashPulse 1.8s ease-in-out infinite alternate;
+    }
+
+    @keyframes hextSplashPulse {
+      from { opacity: 0.92; transform: scale(0.985); }
+      to { opacity: 1; transform: scale(1); }
+    }
+  </style>
 
   <title>Hext</title>
   <link rel="manifest" href="manifest.json">
+  <script>
+    window.__hextGoogleMapsState = {
+      loaded: false,
+      loading: false,
+      error: null,
+      promise: null,
+    };
+
+    window.__hextHandleGoogleMapsRuntimeError = function (message) {
+      const normalized = String(message || '');
+      if (
+        normalized.includes('ApiNotActivatedMapError') ||
+        normalized.includes('Google Maps JavaScript API error') ||
+        normalized.includes('This page didn\'t load Google Maps correctly')
+      ) {
+        window.__hextGoogleMapsState.loaded = false;
+        window.__hextGoogleMapsState.loading = false;
+        window.__hextGoogleMapsState.error =
+          'No se pudo cargar el mapa. Use coordenadas o abrir en Google Maps.';
+        return true;
+      }
+      return false;
+    };
+
+    window.addEventListener('error', function (event) {
+      const message = String(event && event.message ? event.message : '');
+      window.__hextHandleGoogleMapsRuntimeError(message);
+    }, true);
+
+    window.__hextGoogleMapsInit = function () {
+      window.__hextGoogleMapsState.loaded = false;
+      window.__hextGoogleMapsState.loading = false;
+      window.__hextGoogleMapsState.error = null;
+    };
+
+    window.__hextIsGoogleMapsFullyReady = function () {
+      return !!(
+        window.google &&
+        window.google.maps &&
+        window.google.maps.Map &&
+        window.google.maps.MapTypeId &&
+        window.google.maps.MapTypeId.ROADMAP
+      );
+    };
+
+    window.__hextVerifyGoogleMapsAvailability = function () {
+      const state = window.__hextGoogleMapsState;
+      return new Promise((resolve) => {
+        if (!window.__hextIsGoogleMapsFullyReady()) {
+          state.loaded = false;
+          state.loading = false;
+          state.error = 'No se pudo cargar el mapa. Use coordenadas o abrir en Google Maps.';
+          resolve(false);
+          return;
+        }
+
+        const container = document.createElement('div');
+        container.style.width = '1px';
+        container.style.height = '1px';
+        container.style.position = 'fixed';
+        container.style.left = '-9999px';
+        container.style.top = '-9999px';
+        container.style.pointerEvents = 'none';
+        document.body.appendChild(container);
+
+        let settled = false;
+        let timerId = null;
+
+        const finish = (result, errorMessage) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (timerId !== null) {
+            window.clearTimeout(timerId);
+          }
+          window.removeEventListener('error', handleError, true);
+          container.remove();
+          state.loaded = result && window.__hextIsGoogleMapsFullyReady();
+          state.loading = false;
+          state.error = errorMessage || null;
+          resolve(state.loaded);
+        };
+
+        const handleError = function (event) {
+          const message = String(event && event.message ? event.message : '');
+          if (window.__hextHandleGoogleMapsRuntimeError(message)) {
+            finish(false, 'No se pudo cargar el mapa. Use coordenadas o abrir en Google Maps.');
+          }
+        };
+
+        window.addEventListener('error', handleError, true);
+
+        try {
+          new window.google.maps.Map(container, {
+            center: { lat: 10.3997, lng: -75.5144 },
+            zoom: 12,
+            disableDefaultUI: true,
+            keyboardShortcuts: false,
+            clickableIcons: false,
+          });
+
+          timerId = window.setTimeout(() => {
+            finish(window.__hextIsGoogleMapsFullyReady(), window.__hextIsGoogleMapsFullyReady()
+              ? null
+              : 'No se pudo cargar el mapa. Use coordenadas o abrir en Google Maps.');
+          }, 400);
+        } catch (_) {
+          finish(false, 'No se pudo cargar el mapa. Use coordenadas o abrir en Google Maps.');
+        }
+      });
+    };
+
+    window.hextLoadGoogleMaps = function () {
+      const state = window.__hextGoogleMapsState;
+      if (state.loaded || window.__hextIsGoogleMapsFullyReady()) {
+        state.loaded = true;
+        state.loading = false;
+        state.error = null;
+        return Promise.resolve(true);
+      }
+      if (state.promise) {
+        return state.promise;
+      }
+
+      const apiKey = 'AIzaSyDACDbKfIVrMbKJnSHtylvhMPoa4tn4seI';
+      if (!apiKey || apiKey === 'API_KEY') {
+        state.error = 'No se encontró API Key de Google Maps.';
+        return Promise.resolve(false);
+      }
+
+      state.loading = true;
+      state.error = null;
+
+      const existingScript = document.querySelector('script[data-hext-google-maps="true"]');
+      if (existingScript) {
+        state.promise = new Promise((resolve) => {
+          const poll = window.setInterval(() => {
+            if (state.loaded || window.__hextIsGoogleMapsFullyReady()) {
+              window.clearInterval(poll);
+              state.loaded = true;
+              state.loading = false;
+              resolve(true);
+            } else if (state.error) {
+              window.clearInterval(poll);
+              state.loading = false;
+              resolve(false);
+            }
+          }, 100);
+          window.setTimeout(() => {
+            if (!state.loaded) {
+              window.clearInterval(poll);
+              state.loading = false;
+              state.error = state.error || 'Tiempo de espera agotado al cargar Google Maps.';
+              resolve(false);
+            }
+          }, 8000);
+        });
+        return state.promise;
+      }
+
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async&callback=__hextGoogleMapsInit`;
+      script.async = true;
+      script.defer = true;
+      script.dataset.hextGoogleMaps = 'true';
+
+      state.promise = new Promise((resolve) => {
+        script.onerror = function () {
+          state.loading = false;
+          state.error = 'No se pudo inicializar Google Maps.';
+          resolve(false);
+        };
+
+        const timeout = window.setTimeout(() => {
+          if (!state.loaded) {
+            state.loading = false;
+            state.error = 'Tiempo de espera agotado al cargar Google Maps.';
+            resolve(false);
+          }
+        }, 8000);
+
+        const originalInit = window.__hextGoogleMapsInit;
+        window.__hextGoogleMapsInit = function () {
+          window.clearTimeout(timeout);
+          originalInit();
+          window.__hextVerifyGoogleMapsAvailability().then(resolve);
+        };
+
+        document.head.appendChild(script);
+      });
+
+      return state.promise;
+    };
+  </script>
 </head>
 <body>
+  <div id="hext-web-splash" aria-hidden="true">
+    <img src="assets/images/app_icon/hext_logo_transparent.png" alt="HEXT">
+  </div>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
@@ -41,6 +282,37 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script>
+    const hextSplash = document.getElementById('hext-web-splash');
+    let splashDismissed = false;
+    const removeHextSplash = () => {
+      if (splashDismissed) {
+        return;
+      }
+      splashDismissed = true;
+      if (hextSplash) {
+        hextSplash.classList.add('hidden');
+      }
+      window.setTimeout(() => {
+        if (hextSplash && hextSplash.parentNode) {
+        hextSplash.parentNode.removeChild(hextSplash);
+        }
+      }, 240);
+    };
+    const tryDismissSplash = () => {
+      if (document.querySelector('flt-glass-pane, flutter-view')) {
+        removeHextSplash();
+        splashObserver.disconnect();
+      }
+    };
+    const splashObserver = new MutationObserver(() => {
+      tryDismissSplash();
+    });
+    tryDismissSplash();
+    splashObserver.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('load', tryDismissSplash, { once: true });
+    window.setTimeout(removeHextSplash, 8000);
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

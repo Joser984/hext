@@ -5,9 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'package:hext/core/repositories/ops_firestore_repo.dart';
 import 'package:hext/shared/widgets/app_chip.dart';
 import 'package:hext/shared/widgets/filter_shell.dart';
+import 'package:hext/shared/widgets/hext_logo.dart';
+import 'package:hext/shared/widgets/hext_page_shell.dart';
 import 'package:hext/shared/widgets/light_dropdown.dart';
 import 'package:hext/shared/widgets/light_input.dart';
-import 'package:hext/shared/widgets/module_header.dart';
 
 class PendingScreen extends StatefulWidget {
   const PendingScreen({super.key});
@@ -20,6 +21,7 @@ class _PendingScreenState extends State<PendingScreen> {
   final TextEditingController _searchController = TextEditingController();
   final OpsFirestoreRepo _opsRepo = OpsFirestoreRepo();
   StreamSubscription<List<OpsPendingRecord>>? _pendingSubscription;
+  Future<List<OpsPendingRecord>>? _derivedPendingsFuture;
 
   String _tipoFiltro = 'Todos';
   String _estadoFiltro = 'Todos';
@@ -28,15 +30,25 @@ class _PendingScreenState extends State<PendingScreen> {
   @override
   void initState() {
     super.initState();
+    // Iniciar la carga de pendientes derivados
+    _derivedPendingsFuture = _opsRepo.buildDerivedPendings();
     _pendingSubscription = _opsRepo.watchPendings().listen((
       List<OpsPendingRecord> records,
-    ) {
+    ) async {
       if (!mounted) return;
+      // Esperar a que los derivados estén listos
+      final List<OpsPendingRecord> derived = await (_derivedPendingsFuture ?? Future.value([]));
+      // Unir ambos, evitando duplicados por id
+      final Map<String, OpsPendingRecord> allById = {
+        for (final r in records) r.id: r,
+        for (final d in derived) d.id: d,
+      };
+      final List<OpsPendingRecord> merged = allById.values.toList();
       final Map<String, _PendingItemVm> existing = <String, _PendingItemVm>{
         for (final _PendingItemVm i in _items) i.id: i,
       };
       setState(() {
-        _items = records.map((OpsPendingRecord record) {
+        _items = merged.map((OpsPendingRecord record) {
           return _PendingItemVm.fromRecord(
             record: record,
             existing: existing[record.id],
@@ -187,181 +199,202 @@ class _PendingScreenState extends State<PendingScreen> {
   Widget build(BuildContext context) {
     final List<_PendingItemVm> items = _filteredItems;
 
-    return Container(
-      color: const Color(0xFFF5F7FA),
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final double horizontalPadding = constraints.maxWidth >= 900
-              ? 16
-              : 12;
+    return HextPageShell(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool desktopFilters = constraints.maxWidth >= 980;
 
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              20,
-              horizontalPadding,
-              28,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const HextPageHeader(
+              title: 'Pendientes operativos',
+              subtitle:
+                  'Control de pendientes por tipo, vencimiento y estado de gestion.',
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const ModuleHeader(
-                  title: 'Pendientes operativos',
-                  subtitle:
-                      'Control de pendientes por tipo, vencimiento y estado de gestion.',
-                ),
-                const SizedBox(height: 12),
-                FilterShell(
-                  title: 'Filtros',
-                  subtitle: 'Enfoca la atencion en lo urgente y accionable.',
-                  fields: Builder(
-                    builder: (BuildContext context) {
-                      final double maxWidth = constraints.maxWidth;
-                      final double searchWidth = maxWidth >= 1280
-                          ? 320
-                          : maxWidth >= 900
-                          ? 280
-                          : maxWidth;
-                      final double fieldWidth = maxWidth >= 1280
-                          ? 185
-                          : maxWidth >= 900
-                          ? (maxWidth - 12) / 2
-                          : maxWidth;
-
-                      return Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: <Widget>[
-                          SizedBox(
-                            width: searchWidth,
-                            child: LightInput(
-                              label: 'Buscar',
-                              hint: 'Buscar paciente, tipo o detalle',
-                              controller: _searchController,
-                              onChanged: (_) => setState(() {}),
-                            ),
-                          ),
-                          SizedBox(
-                            width: fieldWidth,
-                            child: LightDropdown<String>(
-                              label: 'Tipo',
-                              value: _tipoFiltro,
-                              items: _tipos
-                                  .map(
-                                    (String item) => DropdownMenuItem<String>(
-                                      value: item,
-                                      child: Text(
-                                        item,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (String? value) {
-                                if (value == null) return;
-                                setState(() => _tipoFiltro = value);
-                              },
-                            ),
-                          ),
-                          SizedBox(
-                            width: fieldWidth,
-                            child: LightDropdown<String>(
-                              label: 'Estado',
-                              value: _estadoFiltro,
-                              items: _estados
-                                  .map(
-                                    (String item) => DropdownMenuItem<String>(
-                                      value: item,
-                                      child: Text(
-                                        item,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (String? value) {
-                                if (value == null) return;
-                                setState(() => _estadoFiltro = value);
-                              },
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                  actions: Row(
-                    children: <Widget>[
-                      AppChip(
-                        label: 'Total visibles: ${items.length}',
-                        tone: AppChipTone.info,
-                      ),
-                      const SizedBox(width: 10),
-                      SizedBox(
-                        height: 40,
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _searchController.clear();
-                              _tipoFiltro = 'Todos';
-                              _estadoFiltro = 'Todos';
-                            });
-                          },
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFFD7DCE3)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                          ),
-                          icon: const Icon(
-                            Icons.restart_alt_rounded,
-                            size: 18,
-                            color: Color(0xFF5B6474),
-                          ),
-                          label: const Text(
-                            'Limpiar filtros',
-                            style: TextStyle(color: Color(0xFF5B6474)),
+            FilterShell(
+              title: 'Filtros',
+              subtitle: 'Enfoca la atencion en lo urgente y accionable.',
+              fields: desktopFilters
+                  ? Row(
+                      children: <Widget>[
+                        Expanded(
+                          flex: 2,
+                          child: LightInput(
+                            label: 'Buscar',
+                            hint: 'Buscar paciente, tipo o detalle',
+                            controller: _searchController,
+                            onChanged: (_) => setState(() {}),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (items.isEmpty)
-                  _PendingEmptyState(
-                    onClear: () {
-                      setState(() {
-                        _searchController.clear();
-                        _tipoFiltro = 'Todos';
-                        _estadoFiltro = 'Todos';
-                      });
-                    },
-                  )
-                else
-                  Column(
-                    children: items
-                        .map(
-                          (_PendingItemVm item) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _PendingCompactCard(
-                              item: item,
-                              status: _statusFor(item),
-                              onOpenContext: () => _openContext(item),
-                              onPostpone: () => _postponeItem(item),
-                              onResolve: () => _resolveItem(item),
-                              onReassign: () => _openReassignDialog(item),
-                              onStart: () => _markInProgress(item),
-                            ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: LightDropdown<String>(
+                            label: 'Tipo',
+                            value: _tipoFiltro,
+                            items: _tipos
+                                .map(
+                                  (String item) => DropdownMenuItem<String>(
+                                    value: item,
+                                    child: Text(
+                                      item,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (String? value) {
+                              if (value == null) return;
+                              setState(() => _tipoFiltro = value);
+                            },
                           ),
-                        )
-                        .toList(),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: LightDropdown<String>(
+                            label: 'Estado',
+                            value: _estadoFiltro,
+                            items: _estados
+                                .map(
+                                  (String item) => DropdownMenuItem<String>(
+                                    value: item,
+                                    child: Text(
+                                      item,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (String? value) {
+                              if (value == null) return;
+                              setState(() => _estadoFiltro = value);
+                            },
+                          ),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      children: <Widget>[
+                        LightInput(
+                          label: 'Buscar',
+                          hint: 'Buscar paciente, tipo o detalle',
+                          controller: _searchController,
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        const SizedBox(height: 12),
+                        LightDropdown<String>(
+                          label: 'Tipo',
+                          value: _tipoFiltro,
+                          items: _tipos
+                              .map(
+                                (String item) => DropdownMenuItem<String>(
+                                  value: item,
+                                  child: Text(
+                                    item,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (String? value) {
+                            if (value == null) return;
+                            setState(() => _tipoFiltro = value);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        LightDropdown<String>(
+                          label: 'Estado',
+                          value: _estadoFiltro,
+                          items: _estados
+                              .map(
+                                (String item) => DropdownMenuItem<String>(
+                                  value: item,
+                                  child: Text(
+                                    item,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (String? value) {
+                            if (value == null) return;
+                            setState(() => _estadoFiltro = value);
+                          },
+                        ),
+                      ],
+                    ),
+              actions: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: <Widget>[
+                  AppChip(
+                    label: 'Total visibles: ${items.length}',
+                    tone: AppChipTone.info,
                   ),
-              ],
+                  SizedBox(
+                    height: 40,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _searchController.clear();
+                          _tipoFiltro = 'Todos';
+                          _estadoFiltro = 'Todos';
+                        });
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFD7DCE3)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                      ),
+                      icon: const Icon(
+                        Icons.restart_alt_rounded,
+                        size: 18,
+                        color: Color(0xFF5B6474),
+                      ),
+                      label: const Text(
+                        'Limpiar filtros',
+                        style: TextStyle(color: Color(0xFF5B6474)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          );
-        },
-      ),
+            const SizedBox(height: 12),
+            if (items.isEmpty)
+              _PendingEmptyState(
+                onClear: () {
+                  setState(() {
+                    _searchController.clear();
+                    _tipoFiltro = 'Todos';
+                    _estadoFiltro = 'Todos';
+                  });
+                },
+              )
+            else
+              Column(
+                children: items
+                    .map(
+                      (_PendingItemVm item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _PendingCompactCard(
+                          item: item,
+                          status: _statusFor(item),
+                          onOpenContext: () => _openContext(item),
+                          onPostpone: () => _postponeItem(item),
+                          onResolve: () => _resolveItem(item),
+                          onReassign: () => _openReassignDialog(item),
+                          onStart: () => _markInProgress(item),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -387,161 +420,187 @@ class _PendingCompactCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFDCE3EA)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: <Widget>[
-              AppChip(label: item.tipo, tone: AppChipTone.neutral),
-              AppChip(
-                label: _deadlineLabel(item.vencimiento),
-                tone: _deadlineTone(item.vencimiento, status),
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool useSplitActions = constraints.maxWidth >= 980;
+        Widget buildOpenContextButton({bool expand = false}) {
+          final Widget button = SizedBox(
+            height: 38,
+            child: OutlinedButton(
+              onPressed: onOpenContext,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFD7DCE3)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
               ),
-              AppChip(label: status.label, tone: _statusTone(status)),
-              AppChip(
-                label: 'Contexto: ${item.contextoLabel}',
-                tone: AppChipTone.info,
-              ),
-              AppChip(
-                label: 'Resp: ${item.responsable}',
-                tone: AppChipTone.neutral,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            item.paciente,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF243247),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            item.detalle,
-            style: const TextStyle(fontSize: 13, color: Color(0xFF5B6474)),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                SizedBox(
-                  height: 38,
-                  child: OutlinedButton.icon(
-                    onPressed: onOpenContext,
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFD7DCE3)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    icon: const Icon(
-                      Icons.open_in_new_rounded,
-                      size: 16,
-                      color: Color(0xFF5B6474),
-                    ),
-                    label: Text(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Icon(
+                    Icons.open_in_new_rounded,
+                    size: 16,
+                    color: Color(0xFF5B6474),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
                       'Abrir ${item.contextoLabel}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      softWrap: false,
                       style: const TextStyle(
                         color: Color(0xFF5B6474),
                         fontSize: 12.5,
                       ),
                     ),
                   ),
+                ],
+              ),
+            ),
+          );
+          return expand ? Expanded(child: button) : button;
+        }
+
+        final Widget startButton = SizedBox(
+          height: 38,
+          child: FilledButton(
+            onPressed: status == _PendingFlowStatus.resuelto ? null : onStart,
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF17726D),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+            ),
+            child: const Text('Iniciar'),
+          ),
+        );
+        final Widget moreActionsButton = PopupMenuButton<String>(
+          tooltip: 'Mas acciones',
+          onSelected: (String value) {
+            switch (value) {
+              case 'postpone':
+                onPostpone();
+                return;
+              case 'resolve':
+                onResolve();
+                return;
+              case 'reassign':
+                onReassign();
+                return;
+            }
+          },
+          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+            const PopupMenuItem<String>(
+              value: 'postpone',
+              child: Text('Posponer 1 dia'),
+            ),
+            const PopupMenuItem<String>(
+              value: 'reassign',
+              child: Text('Reasignar responsable'),
+            ),
+            const PopupMenuItem<String>(
+              value: 'resolve',
+              child: Text('Marcar como resuelto'),
+            ),
+          ],
+          child: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFD7DCE3)),
+            ),
+            child: const Icon(
+              Icons.more_horiz_rounded,
+              size: 18,
+              color: Color(0xFF5B6474),
+            ),
+          ),
+        );
+
+        final Widget actions = Row(
+          mainAxisSize: useSplitActions ? MainAxisSize.min : MainAxisSize.max,
+          children: <Widget>[
+            buildOpenContextButton(expand: !useSplitActions),
+            const SizedBox(width: 8),
+            startButton,
+            const SizedBox(width: 8),
+            moreActionsButton,
+          ],
+        );
+
+        final Widget content = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                AppChip(label: item.tipo, tone: AppChipTone.neutral),
+                AppChip(
+                  label: _deadlineLabel(item.vencimiento),
+                  tone: _deadlineTone(item.vencimiento, status),
                 ),
-                SizedBox(
-                  height: 38,
-                  child: FilledButton(
-                    onPressed: status == _PendingFlowStatus.resuelto
-                        ? null
-                        : onStart,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF17726D),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: const Text('Iniciar'),
-                  ),
+                AppChip(label: status.label, tone: _statusTone(status)),
+                AppChip(
+                  label: 'Contexto: ${item.contextoLabel}',
+                  tone: AppChipTone.info,
                 ),
-                PopupMenuButton<String>(
-                  tooltip: 'Mas acciones',
-                  onSelected: (String value) {
-                    switch (value) {
-                      case 'postpone':
-                        onPostpone();
-                        return;
-                      case 'resolve':
-                        onResolve();
-                        return;
-                      case 'reassign':
-                        onReassign();
-                        return;
-                    }
-                  },
-                  itemBuilder: (BuildContext context) =>
-                      <PopupMenuEntry<String>>[
-                        const PopupMenuItem<String>(
-                          value: 'postpone',
-                          child: Text('Posponer 1 dia'),
-                        ),
-                        const PopupMenuItem<String>(
-                          value: 'reassign',
-                          child: Text('Reasignar responsable'),
-                        ),
-                        const PopupMenuItem<String>(
-                          value: 'resolve',
-                          child: Text('Marcar como resuelto'),
-                        ),
-                      ],
-                  child: Container(
-                    height: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFD7DCE3)),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Icon(
-                          Icons.more_horiz_rounded,
-                          size: 18,
-                          color: Color(0xFF5B6474),
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Acciones',
-                          style: TextStyle(
-                            color: Color(0xFF5B6474),
-                            fontSize: 12.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                AppChip(
+                  label: 'Resp: ${item.responsable}',
+                  tone: AppChipTone.neutral,
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            Text(
+              item.paciente,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF243247),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              item.detalle,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF5B6474)),
+            ),
+          ],
+        );
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFDCE3EA)),
           ),
-        ],
-      ),
+          child: useSplitActions
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Expanded(child: content),
+                    const SizedBox(width: 16),
+                    actions,
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    content,
+                    const SizedBox(height: 8),
+                    actions,
+                  ],
+                ),
+        );
+      },
     );
   }
 }
@@ -563,7 +622,7 @@ class _PendingEmptyState extends StatelessWidget {
       ),
       child: Column(
         children: <Widget>[
-          const Icon(Icons.inbox_outlined, size: 42, color: Color(0xFF8A9BB0)),
+          const HextLogo(size: 48),
           const SizedBox(height: 10),
           const Text(
             'No hay pendientes para los filtros actuales',
@@ -637,7 +696,7 @@ class _PendingItemVm {
     return _PendingItemVm(
       id: record.id,
       tipo: record.tipo,
-      paciente: record.paciente,
+      paciente: record.paciente.toUpperCase(),
       vencimiento: record.vencimiento,
       detalle: record.detalle,
       rutaContexto: record.rutaContexto,

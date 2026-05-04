@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
 
 /// FieldShell es el contenedor base puramente visual para todos los campos reutilizables.
 /// Centraliza altura, borde, radio, fondo, padding, tipografía, separación label-campo y estados visuales.
@@ -12,13 +13,13 @@ class FieldShell extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? margin;
 
-  static const double fieldHeight = 40;
-  static const double borderRadius = 10;
-  static const double borderWidth = 1.4;
-  static const double labelSpacing = 5;
+  static const double fieldHeight = HextDimens.fieldHeight;
+  static const double borderRadius = HextDimens.radiusField;
+  static const double borderWidth = 1.2;
+  static const double labelSpacing = HextDimens.labelGap;
   static const EdgeInsets contentPadding = EdgeInsets.symmetric(
     horizontal: 12,
-    vertical: 0,
+    vertical: 8,
   );
 
   const FieldShell({
@@ -35,21 +36,21 @@ class FieldShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color borderColor = !enabled
-        ? const Color(0xFFD9E2E7)
+        ? HextColors.border
         : error
-        ? const Color(0xFFB42318)
+        ? HextColors.error
         : focused
-        ? const Color(0xFF17726D)
-        : const Color(0xFFD9E2E7);
+        ? HextColors.primary
+        : HextColors.border;
     final Color backgroundColor = enabled
-        ? const Color(0xFFFFFFFF)
+        ? HextColors.card
         : const Color(0xFFF3F4F6);
 
     return Container(
       margin: margin,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: <Widget>[
           if (label != null && label!.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(left: 2, bottom: labelSpacing),
@@ -58,7 +59,7 @@ class FieldShell extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w400,
-                  color: Color(0xFF6B7280),
+                  color: HextColors.textSecondary,
                 ),
               ),
             ),
@@ -81,7 +82,7 @@ class FieldShell extends StatelessWidget {
               child: Text(
                 errorText!,
                 style: const TextStyle(
-                  color: Color(0xFFEF4444),
+                  color: HextColors.error,
                   fontSize: 12,
                   fontWeight: FontWeight.w400,
                 ),

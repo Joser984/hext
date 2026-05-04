@@ -3,6 +3,7 @@ import 'package:hext/features/pad/services/pad_firestore_service.dart'
     as pad_service;
 import 'package:hext/features/pad/presentation/captacion/paciente_captacion_form.dart'
     as pad_form;
+import 'package:hext/shared/widgets/hext_loading_screen.dart';
 
 class NuevoPadScreen extends StatelessWidget {
   const NuevoPadScreen({
@@ -44,8 +45,10 @@ class NuevoPadScreen extends StatelessWidget {
           AsyncSnapshot<Map<String, dynamic>?> snapshot,
         ) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
+            return const HextLoadingScreen(
+              title: 'Cargando caso',
+              subtitle: 'Preparando formulario PAD',
+              compact: true,
             );
           }
 

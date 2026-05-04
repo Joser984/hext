@@ -6,12 +6,14 @@ import 'package:hext/core/repositories/caso_paciente_repo.dart';
 import 'package:hext/core/models/caso_paciente.dart';
 import 'package:hext/features/pad/summary/pad_summary_domain_adapter.dart';
 import 'package:hext/features/pad/summary/pad_summary_compact_mapper.dart';
-// import 'package:hext/features/pad/utils/diagnosis_text_formatter.dart';
+import 'package:hext/features/pad/utils/diagnosis_text_formatter.dart';
 import 'package:hext/shared/widgets/app_chip.dart';
 import 'package:hext/shared/widgets/filter_shell.dart';
+import 'package:hext/shared/widgets/hext_loading_screen.dart';
+import 'package:hext/shared/widgets/hext_logo.dart';
+import 'package:hext/shared/widgets/hext_page_shell.dart';
 import 'package:hext/shared/widgets/light_dropdown.dart';
 import 'package:hext/shared/widgets/light_input.dart';
-import 'package:hext/shared/widgets/module_header.dart';
 import 'package:hext/features/pad/egreso/egreso_pad_modal.dart';
 
 class CensoScreen extends StatefulWidget {
@@ -136,23 +138,36 @@ class _CensoScreenState extends State<CensoScreen> {
     final String estadoPad = ((p.resultadoPadLabel?.trim().isNotEmpty ?? false))
         ? p.resultadoPadLabel!.trim()
         : (p.resultadoPadKey ?? '');
+    final String sexo = ((p.sexoLabel?.trim().isNotEmpty ?? false))
+        ? p.sexoLabel!.trim()
+        : (p.sexoKey ?? '');
+    final String aseguradora =
+        ((p.aseguradoraLabel?.trim().isNotEmpty ?? false))
+        ? p.aseguradoraLabel!.trim()
+        : (p.aseguradoraKey ?? '');
+    final String especialidad =
+        ((p.especialidadLabel?.trim().isNotEmpty ?? false))
+        ? p.especialidadLabel!.trim()
+        : (p.especialidadKey ?? '');
 
     return CensoItem(
       candidatoId: p.id,
       identificacion: p.identificacion,
-      nombreApellido: p.nombreCompleto,
+      nombreApellido: p.nombreCompleto.toUpperCase(),
       edad: p.edad ?? 0,
-      sexo: p.sexoLabel ?? p.sexoKey ?? '',
-      aseguradora: p.aseguradoraLabel ?? p.aseguradoraKey ?? '',
+      sexo: sexo,
+      aseguradora: aseguradora,
       situacionAsistencial: situacion,
       estadoPad: estadoPad,
       fechaIngreso: p.fechaIngreso,
       fechaEgreso: p.fechaEgreso,
-      especialidad: p.especialidadLabel ?? p.especialidadKey ?? '',
+      especialidad: especialidad,
       unidadFuncionalOrigen:
           p.unidadFuncionalOrigenLabel ?? p.unidadFuncionalOrigenKey ?? '',
       barrio: p.barrio ?? '',
-      diagnostico: p.diagnosticos ?? '',
+      diagnostico: DiagnosisTextFormatter.normalizeForStorage(
+        p.diagnosticos ?? '',
+      ),
       observaciones: p.observaciones ?? '',
       motivoPrincipal: null,
       motivoPrincipalLabel: null,
@@ -336,7 +351,11 @@ class _CensoScreenState extends State<CensoScreen> {
       stream: CensoPacienteRepo().watchCenso(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const HextLoadingScreen(
+            title: 'Cargando pacientes',
+            subtitle: 'Sincronizando censo institucional',
+            compact: true,
+          );
         }
         if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
@@ -359,39 +378,25 @@ class _CensoScreenState extends State<CensoScreen> {
           unidadOptions = List<String>.from(_unidadOptionsFallback);
         }
 
-        return Container(
-          color: const Color(0xFFF5F7FA),
-          child: LayoutBuilder(
-            builder: (BuildContext context, BoxConstraints constraints) {
-              final bool useTable = constraints.maxWidth >= 1180;
-              final double horizontalPadding =
-                  constraints.maxWidth >= 900 ? 16 : 12;
+        return HextPageShell(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final bool useTable = constraints.maxWidth >= 1180;
 
-              return SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  horizontalPadding,
-                  20,
-                  horizontalPadding,
-                  28,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const HextPageHeader(
+                  title: PadUiLabels.casesPageTitle,
+                  subtitle: PadUiLabels.casesPageSubtitle,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const ModuleHeader(
-                      title: PadUiLabels.casesPageTitle,
-                      subtitle: PadUiLabels.casesPageSubtitle,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildFiltersShell(unidadOptions),
-                    const SizedBox(height: 12),
-                    _buildSectionHeader(theme, filtered.length),
-                    const SizedBox(height: 8),
-                    useTable ? _buildDesktopTable(filtered) : _buildMobileCards(),
-                  ],
-                ),
-              );
-            },
-          ),
+                _buildFiltersShell(unidadOptions),
+                const SizedBox(height: 12),
+                _buildSectionHeader(theme, filtered.length),
+                const SizedBox(height: 8),
+                useTable ? _buildDesktopTable(filtered) : _buildMobileCards(),
+              ],
+            );
+          },
         );
       },
     );
@@ -634,6 +639,8 @@ class _CensoScreenState extends State<CensoScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
+        const HextLogo(size: 48),
+        const SizedBox(height: 14),
         Text(
           PadUiLabels.noResultsTitle,
           style: const TextStyle(

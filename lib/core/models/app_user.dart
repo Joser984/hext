@@ -3,7 +3,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 enum AppUserRole {
   admin,
   medico,
+  directoraPrograma,
   auxiliarAdministrativa,
+  auxiliarEnfermeria,
   auxiliarEnfermeriaClinicaHeridas,
 }
 
@@ -33,7 +35,9 @@ class AppUser {
   // ── Firestore string keys ──────────────────────────────────────────────────
   static const String _kAdmin = 'admin';
   static const String _kMedico = 'medico';
+  static const String _kDirectoraPrograma = 'directora_programa';
   static const String _kAuxAdmin = 'auxiliar_administrativa';
+  static const String _kAuxEnfermeria = 'auxiliar_enfermeria';
   static const String _kAuxHeridas = 'auxiliar_enfermeria_clinica_heridas';
 
   static AppUserRole _rolFromString(String? value) {
@@ -42,8 +46,12 @@ class AppUser {
         return AppUserRole.admin;
       case _kMedico:
         return AppUserRole.medico;
+      case _kDirectoraPrograma:
+        return AppUserRole.directoraPrograma;
       case _kAuxAdmin:
         return AppUserRole.auxiliarAdministrativa;
+      case _kAuxEnfermeria:
+        return AppUserRole.auxiliarEnfermeria;
       case _kAuxHeridas:
         return AppUserRole.auxiliarEnfermeriaClinicaHeridas;
       default:
@@ -57,8 +65,12 @@ class AppUser {
         return _kAdmin;
       case AppUserRole.medico:
         return _kMedico;
+      case AppUserRole.directoraPrograma:
+        return _kDirectoraPrograma;
       case AppUserRole.auxiliarAdministrativa:
         return _kAuxAdmin;
+      case AppUserRole.auxiliarEnfermeria:
+        return _kAuxEnfermeria;
       case AppUserRole.auxiliarEnfermeriaClinicaHeridas:
         return _kAuxHeridas;
     }
@@ -100,7 +112,9 @@ class AppUser {
   // ── Helpers de acceso (base para guards por módulo) ────────────────────────
   bool get isAdmin => rol == AppUserRole.admin;
   bool get isMedico => rol == AppUserRole.medico;
+  bool get isDirectoraPrograma => rol == AppUserRole.directoraPrograma;
   bool get isAuxiliarAdministrativa => rol == AppUserRole.auxiliarAdministrativa;
+  bool get isAuxiliarEnfermeria => rol == AppUserRole.auxiliarEnfermeria;
   bool get isAuxiliarHeridas =>
       rol == AppUserRole.auxiliarEnfermeriaClinicaHeridas;
 
@@ -108,21 +122,61 @@ class AppUser {
   bool get canManageUsers => isAdmin;
 
   /// Puede tomar decisiones clínicas médicas (p.ej. aprobación PAD).
-  bool get canMakeClinicDecisions => isAdmin || isMedico;
+  bool get canMakeClinicDecisions =>
+      isAdmin || isMedico || isDirectoraPrograma;
+
+  /// Alias canónico para decisiones clínicas.
+  bool get canMakeClinicalDecisions => canMakeClinicDecisions;
 
   /// Puede operar flujos asistenciales y operativos.
   bool get canOperateAssistential =>
-      isAdmin || isMedico || isAuxiliarAdministrativa || isAuxiliarHeridas;
+      isAdmin ||
+      isMedico ||
+      isDirectoraPrograma ||
+      isAuxiliarAdministrativa ||
+      isAuxiliarEnfermeria ||
+      isAuxiliarHeridas;
+
+  /// Alias canónico para flujos asistenciales.
+  bool get canOperateAssistentialFlows => canOperateAssistential;
+
+  /// Puede coordinar la operación PAD y supervisar ejecución.
+  bool get canManagePadOperation =>
+      isAdmin || isMedico || isDirectoraPrograma || isAuxiliarAdministrativa;
+
+  /// Puede gestionar horarios y operación del módulo.
+  bool get canManageSchedule => canAccessSchedule;
+
+  /// Puede reasignar responsables operativos y asistenciales.
+  bool get canReassignResponsables =>
+      isAdmin || isDirectoraPrograma || isAuxiliarAdministrativa;
+
+  /// Alias canónico para reasignación de responsables.
+  bool get canReassignResponsibles => canReassignResponsables;
+
+  /// Puede cerrar o validar pendientes críticos.
+  bool get canCloseCriticalPendings =>
+      isAdmin || isMedico || isDirectoraPrograma;
+
+  /// Alias canónico para cierre de pendiente crítico.
+  bool get canCloseCriticalPending => canCloseCriticalPendings;
 
   /// Puede registrar y actualizar seguimiento de clínica de heridas.
   bool get canManageHeridas =>
       isAdmin || isMedico || isAuxiliarHeridas;
 
   /// Puede acceder al módulo de horarios y personal.
-  bool get canAccessSchedule => isAdmin || isAuxiliarAdministrativa;
+  bool get canAccessSchedule =>
+      isAdmin ||
+      isDirectoraPrograma ||
+      isAuxiliarAdministrativa ||
+      isAuxiliarEnfermeria;
 
   /// Puede crear un nuevo candidato PAD.
   bool get canCreatePadCandidato =>
-      isAdmin || isMedico || isAuxiliarAdministrativa;
+      isAdmin ||
+      isMedico ||
+      isDirectoraPrograma ||
+      isAuxiliarAdministrativa;
 }
 

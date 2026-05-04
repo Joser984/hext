@@ -1,67 +1,91 @@
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
 import 'package:hext/core/catalog/pad_labels.dart';
+import 'package:hext/core/models/app_user.dart';
 import 'package:hext/features/auth/auth_notifier.dart';
+import 'package:hext/shared/widgets/hext_mark.dart';
 import 'package:provider/provider.dart';
-
-// Navegación horizontal para desktop
-class _DesktopNavTabs extends StatelessWidget {
-  final int currentIndex;
-  final void Function(int) onTap;
-  const _DesktopNavTabs({required this.currentIndex, required this.onTap});
-
-  static const _tabs = [
-    {'label': 'Dashboard', 'route': '/dashboard'},
-    {'label': 'Pacientes', 'route': '/cases'},
-    {'label': 'Agenda', 'route': '/schedule'},
-    {'label': 'Pendientes', 'route': '/pending'},
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(_tabs.length, (i) {
-        final bool selected = i == currentIndex;
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => onTap(i),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: selected ? const Color(0xFFE8F3F1) : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                border: selected
-                    ? Border.all(color: const Color(0xFF17726D), width: 1.2)
-                    : Border.all(color: Colors.transparent),
-              ),
-              child: Text(
-                _tabs[i]['label']!,
-                style: TextStyle(
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                  color: selected ? const Color(0xFF17726D) : const Color(0xFF4B5563),
-                  fontSize: 15,
-                  letterSpacing: 0.1,
-                ),
-              ),
-            ),
-          ),
-        );
-      }),
-    );
-  }
-}
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum _DesktopCreateAction { newCase, newVisit, addAuxiliary }
 
-class AppShell extends StatelessWidget {
+class _ShellNavItemData {
+  const _ShellNavItemData({
+    required this.label,
+    required this.route,
+    required this.icon,
+    this.badge,
+  });
+
+  final String label;
+  final String route;
+  final IconData icon;
+  final String? badge;
+}
+
+class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.child});
 
   final Widget child;
+
+  static const List<_ShellNavItemData> _desktopItems = <_ShellNavItemData>[
+    _ShellNavItemData(
+      label: 'Dashboard',
+      route: '/dashboard',
+      icon: Icons.grid_view_outlined,
+    ),
+    _ShellNavItemData(
+      label: 'Pacientes',
+      route: '/cases',
+      icon: Icons.people_outline,
+    ),
+    _ShellNavItemData(
+      label: 'Agenda',
+      route: '/schedule',
+      icon: Icons.calendar_month_outlined,
+    ),
+    _ShellNavItemData(
+      label: 'Pendientes',
+      route: '/pending',
+      icon: Icons.pending_actions_outlined,
+      badge: '8',
+    ),
+  ];
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  static const String _sidebarCollapsedPrefsKey =
+      'app_shell.sidebar_collapsed';
+
+  bool _isSidebarCollapsed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreSidebarState();
+  }
+
+  Future<void> _restoreSidebarState() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final bool? savedValue = prefs.getBool(_sidebarCollapsedPrefsKey);
+    if (!mounted || savedValue == null) return;
+    setState(() {
+      _isSidebarCollapsed = savedValue;
+    });
+  }
+
+  Future<void> _toggleSidebarCollapsed() async {
+    final bool nextValue = !_isSidebarCollapsed;
+    setState(() {
+      _isSidebarCollapsed = nextValue;
+    });
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_sidebarCollapsedPrefsKey, nextValue);
+  }
 
   int _currentIndex(BuildContext context) {
     final String location = GoRouterState.of(context).uri.toString();
@@ -100,11 +124,40 @@ class AppShell extends StatelessWidget {
     if (location.startsWith('/dashboard')) return PadUiLabels.dashboardTitle;
     if (location.startsWith('/cases')) return 'Pacientes';
     if (location.startsWith('/schedule/personal')) {
-      return 'Auxiliares de enfermeria';
+      return 'Auxiliares de enfermería';
     }
     if (location.startsWith('/schedule')) return 'Agenda';
     if (location.startsWith('/pending')) return 'Pendientes';
     return 'HEXT';
+  }
+
+  String? _subtitleForRoute(BuildContext context) {
+    final String location = GoRouterState.of(context).uri.toString();
+    if (location.startsWith('/pad/nuevo')) {
+      return 'Captacion y evaluacion inicial del paciente';
+    }
+    if (location.startsWith('/pad/editar')) {
+      return 'Actualizacion y seguimiento del candidato PAD';
+    }
+    if (location.startsWith('/pad/candidatos')) {
+      return 'Gestion de pacientes y candidatos del programa PAD';
+    }
+    if (location.startsWith('/dashboard')) {
+      return 'Vista ejecutiva de operacion y cuidado en salud';
+    }
+    if (location.startsWith('/cases')) {
+      return 'Gestion integral de pacientes y seguimiento operativo';
+    }
+    if (location.startsWith('/schedule/personal')) {
+      return 'Configuracion operativa de auxiliares y disponibilidad';
+    }
+    if (location.startsWith('/schedule')) {
+      return 'Planeacion de visitas y agenda asistencial';
+    }
+    if (location.startsWith('/pending')) {
+      return 'Seguimiento de tareas y eventos pendientes';
+    }
+    return null;
   }
 
   _DesktopCreateAction? _desktopActionForRoute(String location) {
@@ -148,126 +201,581 @@ class AppShell extends StatelessWidget {
     }
   }
 
+  String _roleLabel(AppUserRole role) {
+    switch (role) {
+      case AppUserRole.admin:
+        return 'Administrador';
+      case AppUserRole.medico:
+        return 'Médico';
+      case AppUserRole.directoraPrograma:
+        return 'Directora del programa';
+      case AppUserRole.auxiliarAdministrativa:
+        return 'Coordinación operativa';
+      case AppUserRole.auxiliarEnfermeria:
+        return 'Auxiliar de enfermería';
+      case AppUserRole.auxiliarEnfermeriaClinicaHeridas:
+        return 'Clínica de heridas';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final int currentIndex = _currentIndex(context);
     final String location = GoRouterState.of(context).uri.toString();
     final bool isDesktop = MediaQuery.sizeOf(context).width >= 1024;
-    final _DesktopCreateAction? desktopAction = _desktopActionForRoute(
-      location,
-    );
+    final _DesktopCreateAction? desktopAction = _desktopActionForRoute(location);
 
-    return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        title: isDesktop
-            ? Row(
-                children: [
-                  const Text('HEXT', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F5C58))),
-                  const SizedBox(width: 18),
-                  _DesktopNavTabs(
-                    currentIndex: currentIndex,
-                    onTap: (i) => _onTap(context, i),
+    if (!isDesktop) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(_titleForRoute(context)),
+          actions: <Widget>[
+            IconButton(
+              icon: const Icon(Icons.logout_outlined),
+              tooltip: 'Cerrar sesión',
+              onPressed: () async {
+                await context.read<AuthNotifier>().signOut();
+              },
+            ),
+          ],
+        ),
+        body: widget.child,
+        bottomNavigationBar: BottomAppBar(
+          color: const Color(0xFFFFFFFF),
+          surfaceTintColor: Colors.transparent,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 74,
+              child: Row(
+                children: <Widget>[
+                  _BottomNavItem(
+                    label: 'Dashboard',
+                    icon: Icons.grid_view_outlined,
+                    selected: currentIndex == 0,
+                    compact: false,
+                    onTap: () => _onTap(context, 0),
+                  ),
+                  _BottomNavItem(
+                    label: 'Pacientes',
+                    icon: Icons.assignment_ind_outlined,
+                    selected: currentIndex == 1,
+                    compact: false,
+                    onTap: () => _onTap(context, 1),
+                  ),
+                  _CenterCreateButton(onTap: () => context.go('/pad/nuevo')),
+                  _BottomNavItem(
+                    label: 'Agenda',
+                    icon: Icons.calendar_today_outlined,
+                    selected: currentIndex == 2,
+                    compact: false,
+                    onTap: () => _onTap(context, 2),
+                  ),
+                  _BottomNavItem(
+                    label: 'Pendientes',
+                    icon: Icons.pending_actions_outlined,
+                    selected: currentIndex == 3,
+                    compact: false,
+                    onTap: () => _onTap(context, 3),
                   ),
                 ],
-              )
-            : Text(_titleForRoute(context)),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(2),
-          child: Container(height: 2, color: const Color(0xFF0F5C58)),
-        ),
-        actions: <Widget>[
-          if (isDesktop && desktopAction != null)
-            Tooltip(
-              message: _desktopActionLabel(desktopAction),
-              child: Container(
-                margin: const EdgeInsets.symmetric(vertical: 8),
-                child: Material(
-                  color: const Color(0xFF17726D),
-                  borderRadius: BorderRadius.circular(10),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: () => _handleDesktopAction(context, desktopAction),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        children: <Widget>[
-                          Icon(Icons.add, size: 18, color: Colors.white),
-                          SizedBox(width: 6),
-                          Text(
-                            'Crear',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
               ),
             ),
-          if (isDesktop) const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.logout_outlined, color: Color(0xFF0F5C58)),
-            tooltip: 'Cerrar sesion',
-            onPressed: () async {
-              await context.read<AuthNotifier>().signOut();
-            },
+          ),
+        ),
+      );
+    }
+
+    final AuthNotifier auth = context.watch<AuthNotifier>();
+    final AppUser? user = auth.appUser;
+
+    return Scaffold(
+      body: Row(
+        children: <Widget>[
+          _DesktopSidebar(
+            currentIndex: currentIndex,
+            items: AppShell._desktopItems,
+            isCollapsed: _isSidebarCollapsed,
+            onTap: (int index) => _onTap(context, index),
+            onToggleCollapse: _toggleSidebarCollapsed,
+          ),
+          Expanded(
+            child: ColoredBox(
+              color: HextColors.background,
+              child: Column(
+                children: <Widget>[
+                  _DesktopTopBar(
+                    title: _titleForRoute(context),
+                    subtitle: _isSidebarCollapsed
+                        ? null
+                        : _subtitleForRoute(context),
+                    actionLabel: desktopAction == null
+                        ? null
+                        : _desktopActionLabel(desktopAction),
+                    onActionPressed: desktopAction == null
+                        ? null
+                        : () => _handleDesktopAction(context, desktopAction),
+                    userName: user?.nombre ?? 'Usuario Demo',
+                    userRole: user == null ? 'Sesion local' : _roleLabel(user.rol),
+                    onSignOut: () async {
+                      await context.read<AuthNotifier>().signOut();
+                    },
+                  ),
+                  Expanded(child: widget.child),
+                ],
+              ),
+            ),
           ),
         ],
       ),
-      body: child,
-      bottomNavigationBar: isDesktop
-          ? null
-          : BottomAppBar(
-              color: const Color(0xFFFFFFFF),
-              surfaceTintColor: Colors.transparent,
-              child: SafeArea(
-                top: false,
-                child: SizedBox(
-                  height: 74,
-                  child: Row(
+    );
+  }
+}
+
+class _DesktopSidebar extends StatelessWidget {
+  const _DesktopSidebar({
+    required this.currentIndex,
+    required this.items,
+    required this.isCollapsed,
+    required this.onTap,
+    required this.onToggleCollapse,
+  });
+
+  final int currentIndex;
+  final List<_ShellNavItemData> items;
+  final bool isCollapsed;
+  final ValueChanged<int> onTap;
+  final VoidCallback onToggleCollapse;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      width: isCollapsed
+          ? HextSidebarTokens.collapsedWidth
+          : HextSidebarTokens.width,
+      color: HextColors.sidebarDark,
+      child: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            isCollapsed ? 10 : 24,
+            18,
+            isCollapsed ? 10 : 18,
+            22,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Align(
+                alignment: isCollapsed ? Alignment.topCenter : Alignment.topLeft,
+                child: isCollapsed
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          HextMark(
+                            size: 36,
+                            variant: HextMarkVariant.transparentMark,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(height: 12),
+                          Tooltip(
+                            message: 'Expandir menú',
+                            child: IconButton(
+                              onPressed: onToggleCollapse,
+                              iconSize: 18,
+                              splashRadius: 18,
+                              color: Colors.white70,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 24,
+                                minHeight: 24,
+                              ),
+                              icon: const Icon(Icons.keyboard_double_arrow_right_rounded),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: SizedBox(
+                          height: 64,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: <Widget>[
+                              const HextMark(
+                                size: 32,
+                                variant: HextMarkVariant.transparentMark,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 12),
+                              RichText(
+                                text: const TextSpan(
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 1.2,
+                                    color: Colors.white,
+                                    height: 1,
+                                  ),
+                                  children: <TextSpan>[
+                                    TextSpan(text: 'HE'),
+                                    TextSpan(
+                                      text: 'X',
+                                      style: TextStyle(color: Color(0xFFCCBA86)),
+                                    ),
+                                    TextSpan(text: 'T'),
+                                  ],
+                                ),
+                              ),
+                              const Spacer(),
+                              Tooltip(
+                                message: 'Contraer menú',
+                                child: IconButton(
+                                  onPressed: onToggleCollapse,
+                                  iconSize: 20,
+                                  splashRadius: 18,
+                                  color: Colors.white70,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 24,
+                                    minHeight: 24,
+                                  ),
+                                  icon: const Icon(Icons.keyboard_double_arrow_left_rounded),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 24),
+              const Divider(color: Colors.white12, height: 1),
+              const SizedBox(height: 16),
+              for (int index = 0; index < items.length; index++) ...<Widget>[
+                _SidebarNavItem(
+                  item: items[index],
+                  selected: index == currentIndex,
+                  isCollapsed: isCollapsed,
+                  onTap: () => onTap(index),
+                ),
+                const SizedBox(height: 8),
+              ],
+              const Spacer(),
+              if (!isCollapsed)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0x14000000),
+                    borderRadius: BorderRadius.circular(
+                      HextSidebarTokens.itemRadius,
+                    ),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      _BottomNavItem(
-                        label: 'Dashboard',
-                        icon: Icons.grid_view_outlined,
-                        selected: currentIndex == 0,
-                        compact: false,
-                        onTap: () => _onTap(context, 0),
+                      Row(
+                        children: <Widget>[
+                          HextMark(
+                            size: 24,
+                            variant: HextMarkVariant.transparentMark,
+                            color: Colors.white,
+                          ),
+                          SizedBox(width: 10),
+                          Text('HEXT', style: HextTextStyles.sidebarItem),
+                        ],
                       ),
-                      _BottomNavItem(
-                        label: 'Pacientes',
-                        icon: Icons.assignment_ind_outlined,
-                        selected: currentIndex == 1,
-                        compact: false,
-                        onTap: () => _onTap(context, 1),
-                      ),
-                      _CenterCreateButton(onTap: () => context.go('/pad/nuevo')),
-                      _BottomNavItem(
-                        label: 'Agenda',
-                        icon: Icons.calendar_today_outlined,
-                        selected: currentIndex == 2,
-                        compact: false,
-                        onTap: () => _onTap(context, 2),
-                      ),
-                      _BottomNavItem(
-                        label: 'Pendientes',
-                        icon: Icons.pending_actions_outlined,
-                        selected: currentIndex == 3,
-                        compact: false,
-                        onTap: () => _onTap(context, 3),
+                      SizedBox(height: 6),
+                      Text(
+                        'Plataforma institucional de gestion y cuidado en salud',
+                        style: HextTextStyles.sidebarFooter,
                       ),
                     ],
                   ),
                 ),
-              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarNavItem extends StatelessWidget {
+  const _SidebarNavItem({
+    required this.item,
+    required this.selected,
+    required this.isCollapsed,
+    required this.onTap,
+  });
+
+  final _ShellNavItemData item;
+  final bool selected;
+  final bool isCollapsed;
+  final VoidCallback onTap;
+
+  Widget _buildBadge() {
+    return Container(
+      width: HextSidebarTokens.badgeSize,
+      height: HextSidebarTokens.badgeSize,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        color: HextColors.secondary,
+        shape: BoxShape.circle,
+      ),
+      child: Text(
+        item.badge!,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: HextColors.sidebarDark,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget child = Material(
+      color: selected ? HextColors.sidebarSelected : Colors.transparent,
+      borderRadius: BorderRadius.circular(HextSidebarTokens.itemRadius),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(HextSidebarTokens.itemRadius),
+        onTap: onTap,
+        child: Container(
+          height: HextSidebarTokens.itemHeight,
+          padding: isCollapsed
+              ? EdgeInsets.zero
+              : const EdgeInsets.symmetric(
+                  horizontal: HextSidebarTokens.horizontalPadding,
+                ),
+          child: isCollapsed
+              ? Center(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: <Widget>[
+                      Icon(
+                        item.icon,
+                        color: Colors.white,
+                        size: HextSidebarTokens.iconSize,
+                      ),
+                      if (item.badge != null)
+                        Positioned(
+                          right: -10,
+                          top: -8,
+                          child: Transform.scale(
+                            scale: 0.8,
+                            child: _buildBadge(),
+                          ),
+                        ),
+                    ],
+                  ),
+                )
+              : Row(
+                  children: <Widget>[
+                    Icon(
+                      item.icon,
+                      color: Colors.white,
+                      size: HextSidebarTokens.iconSize,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(item.label, style: HextTextStyles.sidebarItem),
+                    ),
+                    if (item.badge != null) _buildBadge(),
+                  ],
+                ),
+        ),
+      ),
+    );
+
+    if (isCollapsed) {
+      child = Tooltip(message: item.label, child: child);
+    }
+
+    return child;
+  }
+}
+
+class _DesktopTopBar extends StatelessWidget {
+  const _DesktopTopBar({
+    required this.title,
+    required this.subtitle,
+    required this.userName,
+    required this.userRole,
+    required this.onSignOut,
+    this.actionLabel,
+    this.onActionPressed,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String userName;
+  final String userRole;
+  final String? actionLabel;
+  final VoidCallback? onActionPressed;
+  final Future<void> Function() onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    final String initials = userName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((String token) => token.isNotEmpty)
+        .take(2)
+        .map((String token) => token.substring(0, 1).toUpperCase())
+        .join();
+
+    return Container(
+      height: HextDimens.topBarHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: const BoxDecoration(
+        color: HextColors.sidebar,
+        boxShadow: HextShadows.footer,
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title.toUpperCase(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    height: 1.0,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                if (subtitle != null)
+                  Text(
+                    subtitle!,
+                    style: const TextStyle(
+                      color: Color(0xCCEAF3F2),
+                      fontSize: 11,
+                      height: 1.0,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+              ],
             ),
+          ),
+          if (actionLabel != null && onActionPressed != null) ...<Widget>[
+            FilledButton.icon(
+              onPressed: onActionPressed,
+              style: FilledButton.styleFrom(
+                fixedSize: const Size.fromHeight(HextDimens.buttonHeight),
+                maximumSize: const Size(double.infinity, HextDimens.buttonHeight),
+                backgroundColor: Colors.white,
+                foregroundColor: HextColors.sidebarDark,
+                minimumSize: const Size(0, HextDimens.buttonHeight),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(HextDimens.radiusField),
+                ),
+              ),
+              icon: const Icon(Icons.add, size: 17),
+              label: Text(actionLabel!),
+            ),
+            const SizedBox(width: 14),
+          ],
+          const Icon(Icons.search, color: Colors.white, size: 18),
+          const SizedBox(width: 16),
+          Stack(
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              const Icon(
+                Icons.notifications_none,
+                color: Colors.white,
+                size: 20,
+              ),
+              Positioned(
+                right: -3,
+                top: -4,
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: HextColors.secondary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Text(
+                    '3',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: HextColors.sidebarDark,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          PopupMenuButton<String>(
+            tooltip: 'Menu de usuario',
+            color: Colors.white,
+            onSelected: (String value) async {
+              if (value == 'logout') {
+                await onSignOut();
+              }
+            },
+            itemBuilder: (BuildContext context) =>
+                const <PopupMenuEntry<String>>[
+                  PopupMenuItem<String>(
+                    value: 'logout',
+                    child: Text('Cerrar sesion'),
+                  ),
+                ],
+            child: Row(
+              children: <Widget>[
+                CircleAvatar(
+                  radius: 17,
+                  backgroundColor: Colors.white,
+                  foregroundColor: HextColors.sidebarDark,
+                  child: Text(
+                    initials.isEmpty ? 'HX' : initials,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      userName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      userRole,
+                      style: const TextStyle(
+                        color: Color(0xCCEAF3F2),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 6),
+                const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 20),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -346,12 +854,13 @@ class _CenterCreateButton extends StatelessWidget {
         child: Tooltip(
           message: 'Ingresar paciente',
           child: Material(
-            color: const Color(0xFF0F5C58),
+            color: HextColors.primary,
             shape: const CircleBorder(),
             elevation: 2,
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: onTap,
+              splashColor: HextColors.primarySoft,
               child: const SizedBox(
                 width: 54,
                 height: 54,

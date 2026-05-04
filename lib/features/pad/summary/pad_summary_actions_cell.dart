@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
+import 'package:hext/shared/widgets/hext_modal.dart';
 
 /// Modelo mínimo para el caso PAD en la tabla compacta.
 class PadSummaryCase {
@@ -133,17 +135,6 @@ class PadSummaryActionsCell extends StatelessWidget {
     );
   }
 
-  /// Determina el estado visual general a partir del campo de estado.
-  String _resolveGeneralStatus(String? estadoPad) {
-    final String normalized = (estadoPad ?? '').trim().toLowerCase();
-    if (normalized == 'egresado' || normalized == 'cerrado' || normalized == 'alta') {
-      return 'Cerrado';
-    }
-    if (normalized == 'activo en pad' || normalized == 'activoenpad' || normalized == 'seguimiento' || normalized == 'en seguimiento') {
-      return 'Activo';
-    }
-    return 'Estado no clasificado';
-  }
   }
 
 /// Modal de egreso PAD. Devuelve un [PadDischargePayload] o null si se cancela.
@@ -154,15 +145,49 @@ Future<PadDischargePayload?> showPadDischargeDialog(BuildContext context, PadSum
   String? tipoEgreso;
   bool confirmo = false;
 
-  return showDialog<PadDischargePayload>(
+  return showHextDialog<PadDischargePayload>(
     context: context,
     builder: (dialogContext) {
       return StatefulBuilder(
         builder: (context, setState) {
           final canSubmit = tipoEgreso != null && confirmo;
-          return AlertDialog(
-            title: const Text('Egresar paciente'),
-            content: SizedBox(
+          return HextModal(
+            title: 'Egresar paciente',
+            subtitle: 'Registrar cierre operativo del caso desde el resumen PAD.',
+            maxWidth: 540,
+            onClose: () => Navigator.of(dialogContext).pop(),
+            actions: <Widget>[
+              SizedBox(
+                width: 132,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  style: hextSecondaryButtonStyle(),
+                  child: const Text('Cancelar'),
+                ),
+              ),
+              SizedBox(
+                width: 168,
+                child: ElevatedButton(
+                  onPressed: canSubmit
+                      ? () {
+                          if (!formKey.currentState!.validate()) return;
+                          Navigator.of(dialogContext).pop(
+                            PadDischargePayload(
+                              tipoEgreso: tipoEgreso!,
+                              fechaEgreso: fechaEgreso,
+                              observacion: observacionCtrl.text.trim().isEmpty
+                                  ? null
+                                  : observacionCtrl.text.trim(),
+                            ),
+                          );
+                        }
+                      : null,
+                  style: hextPrimaryButtonStyle(),
+                  child: const Text('Confirmar egreso'),
+                ),
+              ),
+            ],
+            child: SizedBox(
               width: 480,
               child: Form(
                 key: formKey,
@@ -236,29 +261,6 @@ Future<PadDischargePayload?> showPadDischargeDialog(BuildContext context, PadSum
                 ),
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Cancelar'),
-              ),
-              FilledButton(
-                onPressed: canSubmit
-                    ? () {
-                        if (!formKey.currentState!.validate()) return;
-                        Navigator.of(dialogContext).pop(
-                          PadDischargePayload(
-                            tipoEgreso: tipoEgreso!,
-                            fechaEgreso: fechaEgreso,
-                            observacion: observacionCtrl.text.trim().isEmpty
-                                ? null
-                                : observacionCtrl.text.trim(),
-                          ),
-                        );
-                      }
-                    : null,
-                child: const Text('Confirmar egreso'),
-              ),
-            ],
           );
         },
       );

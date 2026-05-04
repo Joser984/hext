@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
 import 'field_shell.dart';
 
 class LightDropdown<T> extends StatefulWidget {
@@ -41,8 +42,8 @@ class _LightDropdownState<T> extends State<LightDropdown<T>> {
           final bool hasError =
               fieldState.errorText != null && fieldState.errorText!.isNotEmpty;
           final Color valueColor = widget.enabled
-              ? const Color(0xFF1F2937)
-              : const Color(0xFF6B7280);
+            ? HextColors.textPrimary
+            : HextColors.textSecondary;
 
           return FieldShell(
             label: widget.label,
@@ -60,11 +61,7 @@ class _LightDropdownState<T> extends State<LightDropdown<T>> {
                         (DropdownMenuItem<T> item) => DropdownMenuItem<T>(
                           value: item.value,
                           child: DefaultTextStyle.merge(
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w400,
-                              color: Color(0xFF1F2937),
-                            ),
+                            style: HextTextStyles.field,
                             child: item.child,
                           ),
                         ),
@@ -79,22 +76,16 @@ class _LightDropdownState<T> extends State<LightDropdown<T>> {
                   isExpanded: true,
                   icon: const Icon(
                     Icons.keyboard_arrow_down_rounded,
-                    size: 20,
-                    color: Color(0xFF6B7280),
+                    size: 18,
+                    color: HextColors.textSecondary,
                   ),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
-                    color: valueColor,
-                  ),
+                  style: HextTextStyles.field.copyWith(color: valueColor),
                   menuMaxHeight: 350,
                   hint: widget.hint != null
                       ? Text(
                           widget.hint!,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                            color: Color(0xFF6B7280),
+                          style: HextTextStyles.field.copyWith(
+                            color: HextColors.textSecondary,
                           ),
                         )
                       : null,

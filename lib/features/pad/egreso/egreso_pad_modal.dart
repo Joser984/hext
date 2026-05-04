@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
+import 'package:hext/shared/widgets/hext_modal.dart';
 import 'package:hext/shared/widgets/light_dropdown.dart';
 import 'package:hext/shared/widgets/light_input.dart';
 
@@ -14,7 +16,7 @@ Future<bool?> showEgresoPadDialog({
   String? initialCausaReingresoOtro,
   DateTime? initialFechaEgreso,
 }) {
-  return showDialog<bool>(
+  return showHextDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (_) => _EgresoPadDialog(
@@ -208,98 +210,89 @@ class _EgresoPadDialogState extends State<_EgresoPadDialog> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
 
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _DialogHeader(
-                title: 'Egresar paciente',
-                subtitle: 'Registrar cierre asistencial del caso en PAD.',
-                onClose: _saving ? null : () => Navigator.of(context).pop(false),
-              ),
-              const SizedBox(height: 20),
-              _PatientSummaryCard(
-                pacienteNombre: widget.pacienteNombre,
-                diagnostico: widget.diagnostico,
-                estadoActual: widget.estadoActual,
-              ),
-              const SizedBox(height: 20),
-              Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    EgresoPadSection(
-                      initialTipoEgreso: widget.initialTipoEgreso,
-                      initialCausaReingreso: widget.initialCausaReingreso,
-                      initialCausaReingresoOtro:
-                          widget.initialCausaReingresoOtro,
-                      initialFechaEgreso: widget.initialFechaEgreso,
-                      enabled: !_saving,
-                      onChanged: (Map<String, dynamic> value) {
-                        _egresoData = value;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    LightInput(
-                      controller: _observacionController,
-                      label: 'Observación de cierre',
-                      enabled: !_saving,
-                    ),
-                    const SizedBox(height: 8),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _confirmado,
-                      onChanged: _saving
-                          ? null
-                          : (bool? value) {
-                              setState(() {
-                                _confirmado = value ?? false;
-                              });
-                            },
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: Text(
-                        'Confirmo que deseo registrar el egreso de este paciente.',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed:
-                          _saving ? null : () => Navigator.of(context).pop(false),
-                      child: const Text('Cancelar'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _puedeGuardar ? _guardar : null,
-                      child: _saving
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Guardar egreso'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+    return HextModal(
+      title: 'Egresar paciente',
+      subtitle: 'Registrar cierre asistencial del caso en PAD.',
+      maxWidth: 560,
+      onClose: _saving ? null : () => Navigator.of(context).pop(false),
+      actions: <Widget>[
+        SizedBox(
+          width: 144,
+          child: OutlinedButton(
+            onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+            style: hextSecondaryButtonStyle(),
+            child: const Text('Cancelar'),
           ),
         ),
+        SizedBox(
+          width: 160,
+          child: ElevatedButton(
+            onPressed: _puedeGuardar ? _guardar : null,
+            style: hextPrimaryButtonStyle(),
+            child: _saving
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Guardar egreso'),
+          ),
+        ),
+      ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _PatientSummaryCard(
+            pacienteNombre: widget.pacienteNombre,
+            diagnostico: widget.diagnostico,
+            estadoActual: widget.estadoActual,
+          ),
+          const SizedBox(height: 20),
+          Form(
+            key: _formKey,
+            child: Column(
+              children: <Widget>[
+                EgresoPadSection(
+                  initialTipoEgreso: widget.initialTipoEgreso,
+                  initialCausaReingreso: widget.initialCausaReingreso,
+                  initialCausaReingresoOtro: widget.initialCausaReingresoOtro,
+                  initialFechaEgreso: widget.initialFechaEgreso,
+                  enabled: !_saving,
+                  onChanged: (Map<String, dynamic> value) {
+                    _egresoData = value;
+                  },
+                ),
+                const SizedBox(height: 16),
+                LightInput(
+                  controller: _observacionController,
+                  label: 'Observación de cierre',
+                  enabled: !_saving,
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _confirmado,
+                  onChanged: _saving
+                      ? null
+                      : (bool? value) {
+                          setState(() {
+                            _confirmado = value ?? false;
+                          });
+                        },
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(
+                    'Confirmo que deseo registrar el egreso de este paciente.',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -550,53 +543,6 @@ class _EgresoPadSectionState extends State<EgresoPadSection> {
             onChanged: (_) => _emitValue(),
           ),
         ],
-      ],
-    );
-  }
-}
-
-class _DialogHeader extends StatelessWidget {
-  const _DialogHeader({
-    required this.title,
-    required this.subtitle,
-    required this.onClose,
-  });
-
-  final String title;
-  final String subtitle;
-  final VoidCallback? onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.black54,
-                ),
-              ),
-            ],
-          ),
-        ),
-        IconButton(
-          onPressed: onClose,
-          icon: const Icon(Icons.close),
-        ),
       ],
     );
   }

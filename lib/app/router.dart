@@ -12,6 +12,7 @@ import 'package:hext/features/pending/pending_screen.dart';
 import 'package:hext/features/schedule/horarios_screen.dart';
 import 'package:hext/features/schedule/schedule_screen.dart';
 import 'package:hext/shared/widgets/app_shell.dart';
+import 'package:hext/shared/widgets/hext_loading_screen.dart';
 
 GoRouter buildRouter(AuthNotifier authNotifier) {
   return GoRouter(
@@ -51,7 +52,18 @@ GoRouter buildRouter(AuthNotifier authNotifier) {
     },
     refreshListenable: authNotifier,
     routes: <RouteBase>[
-      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(
+        path: '/login',
+        builder: (context, state) {
+          if (authNotifier.status == AuthStatus.loading) {
+            return const HextLoadingScreen(
+              title: 'Cargando HEXT',
+              subtitle: 'Validando acceso institucional',
+            );
+          }
+          return const LoginScreen();
+        },
+      ),
       // Registro deshabilitado en frontend por ADMIN_ONLY_OPERATION
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
@@ -67,6 +79,10 @@ GoRouter buildRouter(AuthNotifier authNotifier) {
           ),
           GoRoute(
             path: '/schedule',
+            redirect: (context, state) => '/schedule/visitas',
+          ),
+          GoRoute(
+            path: '/schedule/visitas',
             builder: (context, state) => ScheduleScreen(
               initialSearch: state.uri.queryParameters['q'],
               initialVisitId:
@@ -82,8 +98,12 @@ GoRouter buildRouter(AuthNotifier authNotifier) {
             builder: (context, state) => const HorariosScreen(),
           ),
           GoRoute(
-            path: '/schedule/personal',
+            path: '/schedule/auxiliares',
             builder: (context, state) => const PersonalModulePage(),
+          ),
+          GoRoute(
+            path: '/schedule/personal',
+            redirect: (context, state) => '/schedule/auxiliares',
           ),
           GoRoute(
             path: '/pending',

@@ -73,21 +73,32 @@ Usos secundarios:
 Color institucional principal:
 
 - Verde HEXT: #17726D
+- Dorado/acento HEXT: #CCBA86
 
 Paleta base:
 
 - Primario: #17726D
-- Primario oscuro: #0F5C58
-- Fondo suave: #E8F3F1
+- Secundario/acento: #CCBA86
+- Fondo base: #FFFFFF
+- Superficie: #F7F9F8
 - Texto principal: #1F2937
 - Texto secundario: #6B7280
-- Borde/divisor: #D9E2E7
-- Blanco base: #FFFFFF
+- Borde/divisor: #E5E7EB
+
+Reglas obligatorias de aplicacion:
+
+- Usar #17726D exacto para fondos verdes institucionales.
+- Usar #CCBA86 exacto para la X y acentos de marca.
+- Evitar degradados fuertes, glow, brillo metalico y efectos 3D.
+- Evitar sombras pesadas; preferir bordes de 1 px y elevacion minima o nula.
+- Mantener composicion plana, limpia e institucional.
+- En splash puede existir textura muy sutil, pero el color base debe seguir siendo #17726D.
 
 Regla de uso:
 
 - El verde es la identidad institucional.
 - Colores como azul, ambar o violeta se usan para estados semanticos clinicos, no como color de marca.
+- El color de marca no se oscurece con degradados para crear volumen.
 
 ## 6. Tipografia institucional
 
@@ -116,6 +127,9 @@ Principios:
 - estados semanticos controlados
 - iconografia simple
 - sin elementos ornamentales innecesarios
+- color = semantica operativa, no decoracion
+- maximo 2 colores dominantes por pantalla
+- sin degradados fuertes ni sombras pesadas
 
 Promesa visual:
 
@@ -171,27 +185,45 @@ Evitar:
 ### 10.1 Tokens base sugeridos
 
 - color.brand.primary = #17726D
-- color.brand.primaryDark = #0F5C58
-- color.surface.soft = #E8F3F1
+- color.brand.accent = #CCBA86
+- color.surface.base = #FFFFFF
+- color.surface.soft = #F7F9F8
 - color.text.primary = #1F2937
 - color.text.secondary = #6B7280
-- color.border.default = #D9E2E7
-- color.surface.base = #FFFFFF
+- color.border.default = #E5E7EB
 
 ### 10.2 Botones
 
-- Primario: fondo #17726D, texto blanco, hover #0F5C58
+- Primario: fondo #17726D, texto blanco, sin degradado ni relieve
 - Secundario: fondo blanco, borde #D9E2E7, texto #1F2937
 - Destructivo: usar color semantico de error, nunca reemplazar color de marca
 
 ### 10.3 Cards
 
-- Fondo blanco o #E8F3F1 segun jerarquia
-- Borde sutil #D9E2E7
+- Fondo blanco o #F7F9F8 segun jerarquia
+- Borde sutil #E5E7EB
 - Radio discreto
-- Elevacion minima
+- Elevacion minima o nula
 
-### 10.4 Estados semanticos
+### 10.4 Horarios operativos
+
+- Fondo general: #F7F9F8
+- Celdas: #FFFFFF
+- Bordes: #E5E7EB
+- Texto principal: #1F2937
+- Turno M: fondo #E6F4F3, texto #17726D
+- Turno T: fondo #EEF2FF, texto #3730A3
+- Turno R: fondo #F3E8FF, texto #6B21A8
+- Estado 4H: fondo #FFF7ED, texto #C2410C
+- Estado L: fondo #F3F4F6, texto #6B7280
+- Incapacidad / Ausencia / Suspension: fondo #FEF2F2, texto #DC2626
+- Vacaciones: fondo #F5F3FF, texto #7C3AED
+- Permiso: fondo #FFF7ED, texto #D97706
+- Domingo o festivo: fondo de columna #FFF1F2, texto fecha #B91C1C
+- Alertas: critico #DC2626, alerta #D97706, informativo #2563EB
+- Las alertas viven en badges o indicadores, no en celdas completas.
+
+### 10.5 Estados semanticos
 
 - Exito, alerta, error e informacion deben diferenciarse del verde institucional
 - Mantener contraste y legibilidad
@@ -203,6 +235,7 @@ Evitar:
 - Evitar variantes cromaticas no aprobadas para elementos de marca.
 - No mezclar tono institucional con microcopy emocional.
 - Priorizar continuidad visual entre modulos clinicos, operativos y administrativos.
+- Eliminar amarillo/negro tipo obra, colores saturados y efectos publicitarios.
 
 ## 12. Definicion final
 

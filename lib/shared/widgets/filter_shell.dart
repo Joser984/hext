@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
+import 'package:hext/shared/widgets/hext_card.dart';
 
 class FilterShell extends StatelessWidget {
   const FilterShell({
@@ -16,36 +18,22 @@ class FilterShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return HextCard(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFCED7E1)),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(
-            color: Color(0x140D253F),
-            blurRadius: 10,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
             title,
-            style: const TextStyle(
-              fontSize: 15,
+            style: HextTextStyles.subsectionTitle.copyWith(
               fontWeight: FontWeight.w700,
-              color: Color(0xFF243247),
             ),
           ),
           const SizedBox(height: 2),
           Text(
             subtitle,
-            style: const TextStyle(fontSize: 12.5, color: Color(0xFF7B8794)),
+            style: HextTextStyles.secondary.copyWith(fontSize: 12.5),
           ),
           const SizedBox(height: 8),
           fields,

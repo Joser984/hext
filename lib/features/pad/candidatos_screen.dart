@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hext/core/catalog/pad_labels.dart';
+import 'package:hext/shared/widgets/hext_loading_screen.dart';
 
 class CandidatosScreen extends StatelessWidget {
   const CandidatosScreen({super.key});
@@ -60,7 +61,11 @@ class CandidatosScreen extends StatelessWidget {
                 AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
               ) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const HextLoadingScreen(
+                    title: 'Cargando candidatos',
+                    subtitle: 'Consultando casos PAD',
+                    compact: true,
+                  );
                 }
 
                 if (snapshot.hasError) {

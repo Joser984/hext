@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:hext/core/theme/hext_ui_tokens.dart';
 
 class AppTheme {
-  static const Color primary = Color(0xFF17726D);
-  static const Color primaryDark = Color(0xFF0F5C58);
-  static const Color softBackground = Color(0xFFE8F3F1);
-  static const Color textPrimary = Color(0xFF1F2937);
-  static const Color textSecondary = Color(0xFF6B7280);
-  static const Color border = Color(0xFFD9E2E7);
-  static const Color surfaceBase = Color(0xFFFFFFFF);
+  static const Color primary = HextColors.primary;
+  static const Color accent = HextColors.secondary;
+  static const Color softBackground = HextColors.background;
+  static const Color textPrimary = HextColors.textPrimary;
+  static const Color textSecondary = HextColors.textSecondary;
+  static const Color border = HextColors.border;
+  static const Color surfaceBase = HextColors.card;
   static const double controlHeight = 40;
 
   static final ThemeData light = ThemeData(
     colorScheme: const ColorScheme.light(
       primary: primary,
-      secondary: primaryDark,
+      secondary: accent,
       surface: surfaceBase,
       onSurface: textPrimary,
       onSurfaceVariant: textSecondary,
@@ -48,8 +49,13 @@ class AppTheme {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: primary,
+        backgroundColor: HextColors.sidebar,
         foregroundColor: Colors.white,
+        disabledBackgroundColor: HextColors.borderSoft,
+        disabledForegroundColor: HextColors.textMuted,
+        overlayColor: HextColors.primarySoft,
+        elevation: 0,
+        shadowColor: Colors.transparent,
         minimumSize: const Size(0, controlHeight),
         maximumSize: const Size(double.infinity, controlHeight),
         alignment: Alignment.center,
@@ -61,6 +67,8 @@ class AppTheme {
       style: OutlinedButton.styleFrom(
         foregroundColor: textPrimary,
         backgroundColor: surfaceBase,
+        disabledForegroundColor: HextColors.textMuted,
+        overlayColor: HextColors.primarySoft,
         side: const BorderSide(color: border),
         minimumSize: const Size(0, controlHeight),
         maximumSize: const Size(double.infinity, controlHeight),
@@ -71,8 +79,13 @@ class AppTheme {
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: primary,
+        backgroundColor: HextColors.sidebar,
         foregroundColor: Colors.white,
+        disabledBackgroundColor: HextColors.borderSoft,
+        disabledForegroundColor: HextColors.textMuted,
+        overlayColor: HextColors.primarySoft,
+        elevation: 0,
+        shadowColor: Colors.transparent,
         minimumSize: const Size(0, controlHeight),
         maximumSize: const Size(double.infinity, controlHeight),
         alignment: Alignment.center,
@@ -83,6 +96,8 @@ class AppTheme {
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: primary,
+        disabledForegroundColor: HextColors.textMuted,
+        overlayColor: HextColors.primarySoft,
         minimumSize: const Size(0, controlHeight),
         alignment: Alignment.center,
         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400),

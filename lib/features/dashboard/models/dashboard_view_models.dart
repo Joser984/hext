@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+enum DashboardDateFilter { hoy, semana, mes, anio, rango }
+
 class KpiItem {
   final String label;
   final String value;
@@ -23,11 +25,27 @@ class DailyPadStatPoint {
   final DateTime date;
   final int amanecen;
   final int egresan;
+  final bool isForecast;
 
   const DailyPadStatPoint({
     required this.date,
     required this.amanecen,
     required this.egresan,
+    this.isForecast = false,
+  });
+}
+
+class TrendChartEntry {
+  final String label;
+  final DailyPadStatPoint point;
+  final DateTime start;
+  final DateTime end;
+
+  const TrendChartEntry({
+    required this.label,
+    required this.point,
+    required this.start,
+    required this.end,
   });
 }
 
@@ -80,15 +98,19 @@ class VisitItem {
   });
 }
 
-class VisitNowItem<TState> {
+enum ActivityKind { alta, reingreso }
+
+enum NowState { enCurso, porIniciar, retrasada }
+
+class VisitNowItem {
   final VisitItem visit;
-  final TState state;
+  final NowState state;
 
   const VisitNowItem({required this.visit, required this.state});
 }
 
-class NowSnapshot<TState> {
-  final List<VisitNowItem<TState>> items;
+class NowSnapshot {
+  final List<VisitNowItem> items;
   final VisitItem? nextVisit;
 
   const NowSnapshot({required this.items, required this.nextVisit});
@@ -108,11 +130,11 @@ class SimpleEventItem {
   });
 }
 
-class RecentActivityItem<TKind> {
+class RecentActivityItem {
   final String title;
   final String subtitle;
   final DateTime date;
-  final TKind kind;
+  final ActivityKind kind;
 
   const RecentActivityItem({
     required this.title,

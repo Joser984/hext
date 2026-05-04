@@ -1,14 +1,20 @@
 // Última actualización: 13/04/2026
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hext/core/models/auxiliar_domiciliario.dart';
 import 'package:hext/core/repositories/in_memory_personal_repo.dart';
 import 'package:hext/core/scheduling/aux_schedule_generator.dart'
     show kRotationAnchorMonday;
+import 'package:hext/features/schedule/data/imported_schedule_plan.dart';
+import 'package:hext/features/schedule/data/scheduled_shift_repo.dart';
+import 'package:hext/features/schedule/models/scheduled_shift.dart';
 import 'package:hext/core/utils/colombia_holidays.dart';
 import 'package:hext/shared/widgets/app_chip.dart';
 import 'package:hext/shared/widgets/agenda_subnav.dart';
-import 'package:hext/shared/widgets/module_header.dart';
+import 'package:hext/shared/widgets/hext_page_shell.dart';
+import 'package:hext/app/hext_design_system.dart';
 
 // Formatea texto clínico: inserta salto de línea después de símbolos o números de sección
 String formatClinicalText(String text) {
@@ -41,6 +47,58 @@ class HorariosScreen extends StatefulWidget {
 }
 
 class _HorariosScreenState extends State<HorariosScreen> {
+  final FirestoreScheduledShiftRepo _scheduledShiftRepo =
+      FirestoreScheduledShiftRepo();
+
+  StreamSubscription<List<ScheduledShift>>? _scheduledShiftsSubscription;
+  ImportedScheduleDataset? _importedScheduleDataset;
+  ImportedScheduleMonthData? _firestoreWindowData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadImportedScheduleDataset();
+    _bindFirestoreWindow();
+  }
+
+  @override
+  void dispose() {
+    _scheduledShiftsSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadImportedScheduleDataset() async {
+    final ImportedScheduleDataset? dataset =
+        await ImportedScheduleDataset.loadDefault();
+    if (!mounted || dataset == null) return;
+    setState(() {
+      _importedScheduleDataset = dataset;
+    });
+  }
+
+  void _bindFirestoreWindow() {
+    _scheduledShiftsSubscription?.cancel();
+    final List<DateTime> visibleDays = buildCenteredDateWindow(_focusedMonth);
+    final DateTime start = visibleDays.first;
+    final DateTime endExclusive = visibleDays.last.add(const Duration(days: 1));
+    _scheduledShiftsSubscription = _scheduledShiftRepo.watchRange(
+      start: start,
+      endExclusive: endExclusive,
+    ).listen((
+      List<ScheduledShift> items,
+    ) {
+      if (!mounted) return;
+      final ImportedScheduleMonthData? windowData = items.isEmpty
+          ? null
+          : ImportedScheduleDataset.fromEntries(
+              items,
+            ).windowFor(anchorDate: _focusedMonth, visibleDays: visibleDays);
+      setState(() {
+        _firestoreWindowData = windowData;
+      });
+    });
+  }
+
   // Franja resumen compacta arriba de la matriz
   Widget _buildCompactSummaryBar(GeneratedMonthPlan plan, int totalAuxiliares) {
     int critical = 0;
@@ -59,9 +117,9 @@ class _HorariosScreenState extends State<HorariosScreen> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: HextColors.blanco,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFDCE3EA)),
+        border: Border.all(color: HextColors.bordeSuave),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -71,14 +129,14 @@ class _HorariosScreenState extends State<HorariosScreen> {
             children: <Widget>[
               const Text(
                 'Auxiliares activos',
-                style: TextStyle(fontSize: 13, color: Color(0xFF748096)),
+                style: TextStyle(fontSize: 13, color: HextColors.textoSecundario),
               ),
               Text(
                 '$totalAuxiliares',
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF243247),
+                  color: HextColors.textoPrincipal,
                 ),
               ),
             ],
@@ -88,14 +146,14 @@ class _HorariosScreenState extends State<HorariosScreen> {
             children: <Widget>[
               const Text(
                 'Mes',
-                style: TextStyle(fontSize: 13, color: Color(0xFF748096)),
+                style: TextStyle(fontSize: 13, color: HextColors.textoSecundario),
               ),
               Text(
                 _monthYearLabel(_focusedMonth),
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF243247),
+                  color: HextColors.textoPrincipal,
                 ),
               ),
             ],
@@ -105,38 +163,38 @@ class _HorariosScreenState extends State<HorariosScreen> {
             children: <Widget>[
               const Text(
                 'Críticas',
-                style: TextStyle(fontSize: 13, color: Color(0xFFB42318)),
+                style: TextStyle(fontSize: 13, color: HextColors.estadoError),
               ),
               Text(
                 '$critical',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFFB42318),
+                  color: HextColors.estadoError,
                 ),
               ),
               const Text(
                 'Alertas',
-                style: TextStyle(fontSize: 13, color: Color(0xFF946200)),
+                style: TextStyle(fontSize: 13, color: HextColors.estadoAdvertencia),
               ),
               Text(
                 '$alert',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF946200),
+                  color: HextColors.estadoAdvertencia,
                 ),
               ),
               const Text(
                 'Informativas',
-                style: TextStyle(fontSize: 13, color: Color(0xFF17726D)),
+                style: TextStyle(fontSize: 13, color: HextColors.verdePrincipal),
               ),
               Text(
                 '$info',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF17726D),
+                  color: HextColors.verdePrincipal,
                 ),
               ),
             ],
@@ -161,7 +219,11 @@ class _HorariosScreenState extends State<HorariosScreen> {
     return _isDesktop(context) && isEmpty;
   }
 
-  DateTime _focusedMonth = DateTime(2026, 4, 1);
+  DateTime _focusedMonth = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
 
   /// Con 2 auxiliares, el domingo puede manejarse como contingencia J/L.
   final TwoAuxSundayPolicy _twoAuxSundayPolicy = kHorarioTwoAuxSundayPolicy;
@@ -190,60 +252,86 @@ class _HorariosScreenState extends State<HorariosScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<DateTime> daysOfMonth = _daysOfMonth(_focusedMonth);
-    // Full-week padded grid: always starts on Monday, always ends on Sunday.
-    final List<DateTime> days = _padToFullWeeks(daysOfMonth);
+    final List<DateTime> days = buildCenteredDateWindow(_focusedMonth);
 
     final List<AuxiliarDomiciliario> activeAuxiliares = context
         .watch<InMemoryPersonalRepo>()
         .items
         .where((AuxiliarDomiciliario a) => a.activo)
         .toList();
-    final List<String> auxiliaresRegistrados = activeAuxiliares
+      final List<String> nombresActivos = activeAuxiliares
         .map((AuxiliarDomiciliario a) => a.nombreCompleto)
         .toList();
+    final ImportedScheduleMonthData? importedMonth =
+        _firestoreWindowData ??
+        _importedScheduleDataset?.windowFor(
+          anchorDate: _focusedMonth,
+          visibleDays: days,
+        );
+      final List<String> auxiliaresFuente = importedMonth?.auxiliarNames ?? nombresActivos;
+      final bool auxiliaresFuenteValidos =
+        auxiliaresFuente.isNotEmpty && auxiliaresFuente.length <= 3;
+      final bool usingSafeFallbackAuxiliares = !auxiliaresFuenteValidos;
+      final List<String> auxiliaresRegistrados = auxiliaresFuenteValidos
+        ? auxiliaresFuente
+        : kHorarioAuxiliaresRegistrados;
 
-    final GeneratedMonthPlan plan = _generateMonthPlan(
-      year: _focusedMonth.year,
-      month: _focusedMonth.month,
-      nombres: auxiliaresRegistrados,
-      twoAuxSundayPolicy: _twoAuxSundayPolicy,
-      overrides: _currentOverrides,
-    );
+    final GeneratedMonthPlan plan =
+        importedMonth == null
+        ? _generateMonthPlan(
+            year: _focusedMonth.year,
+            month: _focusedMonth.month,
+            nombres: auxiliaresRegistrados,
+            visibleDays: days,
+            twoAuxSundayPolicy: _twoAuxSundayPolicy,
+            overrides: _currentOverrides,
+          )
+        : _buildImportedMonthPlan(
+            month: _focusedMonth,
+            importedMonth: importedMonth,
+            visibleDays: days,
+            overrides: _currentOverrides,
+          );
 
-    final bool isDesktop = _isDesktop(context);
-    final double horizontalPadding = isDesktop ? 32 : 12;
-    final double topScrollOffset = isDesktop ? 16 : 6;
-
-    return Container(
-      color: const Color(0xFFF5F7FA),
-      child: Padding(
-        padding: EdgeInsets.only(top: topScrollOffset),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            horizontalPadding,
-            14,
-            horizontalPadding,
-            28,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              // Título principal
-              ModuleHeader(
-                title: 'Horarios de auxiliares de enfermería',
-                subtitle:
-                    'Cuadrante mensual con cobertura prioritaria M/T y control semanal de horas.',
+    return HextPageShell(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const HextPageHeader(
+              title: 'Horarios',
+              subtitle:
+                  'Ventana operativa de 31 días con cobertura prioritaria M/T y control semanal de horas.',
+              tabs: AgendaSubnav(section: AgendaSubnavSection.horarios),
+            ),
+            if (usingSafeFallbackAuxiliares) ...<Widget>[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFEFD39A)),
+                ),
+                child: Text(
+                  importedMonth == null
+                      ? 'Horarios requiere entre 1 y 3 auxiliares activos. Se cargó una base temporal para evitar el bloqueo mientras se sincroniza la información.'
+                      : 'El plan importado trae una cantidad no soportada de auxiliares. Se cargó una base temporal para mantener la vista operativa.',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF8F5A00),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
-              const SizedBox(height: 10),
-              if (!isDesktop)
-                const AgendaSubnav(section: AgendaSubnavSection.horarios),
-              if (!isDesktop) const SizedBox(height: 12),
-              // Franja resumen compacta arriba
-              _buildCompactSummaryBar(plan, auxiliaresRegistrados.length),
-              const SizedBox(height: 14),
-              // Matriz de cuadrante y navegación de mes
-              Row(
+              const SizedBox(height: 12),
+            ],
+            _buildCompactSummaryBar(plan, auxiliaresRegistrados.length),
+            const SizedBox(height: 14),
+            Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: <Widget>[
@@ -252,12 +340,12 @@ class _HorariosScreenState extends State<HorariosScreen> {
                     child: OutlinedButton(
                       onPressed: _goPreviousMonth,
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFD7DCE3)),
+                        side: const BorderSide(color: HextColors.bordeTarjeta),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 10),
-                        backgroundColor: Colors.white,
+                        backgroundColor: HextColors.blanco,
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -265,7 +353,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
                           const Icon(
                             Icons.chevron_left_rounded,
                             size: 20,
-                            color: Color(0xFF5B6474),
+                            color: HextColors.textoSuave,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -278,7 +366,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
                             ).split(' ').first,
                             style: const TextStyle(
                               fontSize: 13,
-                              color: Color(0xFF5B6474),
+                              color: HextColors.textoSuave,
                             ),
                           ),
                         ],
@@ -299,7 +387,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
                     child: OutlinedButton(
                       onPressed: _goNextMonth,
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFD7DCE3)),
+                        side: const BorderSide(color: HextColors.bordeTarjeta),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -334,18 +422,15 @@ class _HorariosScreenState extends State<HorariosScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              // Convenciones y criterios extendidos ahora debajo de la matriz
-              _buildLegendCard(),
-              const SizedBox(height: 10),
-              _buildConventionsCard(plan, auxiliaresRegistrados),
-              const SizedBox(height: 16),
-              // Resumen semanal de horas y alertas
-              _buildWeeklyAlertsCard(plan.weeklySummaries),
-            ],
-          ),
-        ),
-      ),
+            const SizedBox(height: 18),
+            _buildLegendCard(),
+            const SizedBox(height: 10),
+            _buildConventionsCard(plan, auxiliaresRegistrados),
+            const SizedBox(height: 16),
+            _buildWeeklyAlertsCard(plan.weeklySummaries),
+          ],
+        );
+      },
     );
   }
 
@@ -359,13 +444,22 @@ class _HorariosScreenState extends State<HorariosScreen> {
       ),
       _LegendItemData(
         code: ScheduleCode.j,
-        label: 'Jornada completa · 06:00–22:00',
+        label: 'Cobertura completa · 06:00–22:00',
+      ),
+      _LegendItemData(
+        code: ScheduleCode.f,
+        label: 'Festivo especial · 8 h',
+      ),
+      _LegendItemData(
+        code: ScheduleCode.h4,
+        label: 'Ajuste operativo · 4 h',
       ),
       _LegendItemData(code: ScheduleCode.l, label: 'Libre'),
       _LegendItemData(code: ScheduleCode.i, label: 'Incapacidad'),
       _LegendItemData(code: ScheduleCode.v, label: 'Vacaciones'),
       _LegendItemData(code: ScheduleCode.p, label: 'Permiso'),
       _LegendItemData(code: ScheduleCode.a, label: 'Ausencia'),
+      _LegendItemData(code: ScheduleCode.s, label: 'Suspensión'),
       _LegendItemData(code: ScheduleCode.x, label: 'Pendiente'),
     ];
 
@@ -386,8 +480,8 @@ class _HorariosScreenState extends State<HorariosScreen> {
           ),
           const SizedBox(height: 10),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: legendItems
                 .map(
                   (_LegendItemData item) => AppChip(
@@ -400,8 +494,8 @@ class _HorariosScreenState extends State<HorariosScreen> {
           ),
           const SizedBox(height: 8),
           const Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: <Widget>[
               AppChip(
                 label: 'Domingos/festivos resaltados en rojo suave',
@@ -409,7 +503,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
                 leadingDot: true,
               ),
               AppChip(
-                label: 'Novedades I/V/P/A con alta visibilidad',
+                label: 'Novedades I/V/P/A/S con alta visibilidad',
                 tone: AppChipTone.danger,
                 leadingDot: true,
               ),
@@ -539,7 +633,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
               ),
               AppChip(
                 label: 'Informativo: ${info.length}',
-                tone: AppChipTone.info,
+                tone: AppChipTone.neutral,
                 leadingDot: true,
               ),
             ],
@@ -624,14 +718,16 @@ class _HorariosScreenState extends State<HorariosScreen> {
 
   void _goPreviousMonth() {
     setState(() {
-      _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month - 1, 1);
+      _focusedMonth = _shiftWindowCenterByMonth(_focusedMonth, -1);
     });
+    _bindFirestoreWindow();
   }
 
   void _goNextMonth() {
     setState(() {
-      _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1, 1);
+      _focusedMonth = _shiftWindowCenterByMonth(_focusedMonth, 1);
     });
+    _bindFirestoreWindow();
   }
 
   Future<void> _showCellPicker(
@@ -643,7 +739,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
       ),
       builder: (BuildContext ctx) {
         return SafeArea(
@@ -666,7 +762,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
                   'Turno actual: ${current.label} · ${current.fullName}',
                   style: const TextStyle(
                     fontSize: 12.5,
-                    color: Color(0xFF8A9BB0),
+                    color: Color(0xFF6D7884),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -688,7 +784,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
                           color: isSelected
                               ? palette.foreground.withValues(alpha: 0.12)
                               : palette.background,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(8),
                           border: Border.all(
                             color: isSelected
                                 ? palette.foreground
@@ -704,9 +800,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
-                                color: code.isInstitutionalShift
-                                    ? const Color(0xFF5F6B7A)
-                                    : palette.foreground,
+                                color: palette.foreground,
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -714,7 +808,7 @@ class _HorariosScreenState extends State<HorariosScreen> {
                               code.fullName.split(' · ').first,
                               style: const TextStyle(
                                 fontSize: 10.5,
-                                color: Color(0xFF8A9BB0),
+                                color: Color(0xFF6D7884),
                               ),
                             ),
                           ],
@@ -738,8 +832,8 @@ class _HorariosScreenState extends State<HorariosScreen> {
   BoxDecoration _cardDecoration() {
     return BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: const Color(0xFFDCE3EA)),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: const Color(0xFFDDE4E8)),
     );
   }
 }
@@ -764,11 +858,11 @@ class _ScheduleMatrixCard extends StatelessWidget {
   )
   onCellTap;
 
-  static const double nameColumnWidth = 220;
-  static const double dayCellWidth = 36;
-  static const double headerCellHeight = 30;
-  static const double rowHeight = 42;
-  static const double summaryColumnWidth = 128;
+  static const double nameColumnWidth = 208;
+  static const double dayCellWidth = 34;
+  static const double headerCellHeight = 26;
+  static const double rowHeight = 40;
+  static const double summaryColumnWidth = 104;
 
   @override
   Widget build(BuildContext context) {
@@ -778,12 +872,13 @@ class _ScheduleMatrixCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFDCE3EA)),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 0.5),
       ),
       clipBehavior: Clip.antiAlias,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
+      child: _CenteredScheduleScroller(
+        days: days,
+        focusedMonth: focusedMonth,
         child: SizedBox(
           width: tableWidth,
           child: Column(
@@ -803,7 +898,7 @@ class _ScheduleMatrixCard extends StatelessWidget {
   Widget _buildHeader() {
     return Container(
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFDCE3EA))),
+        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB), width: 0.5)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -813,18 +908,18 @@ class _ScheduleMatrixCard extends StatelessWidget {
             height: headerCellHeight * 2,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
-              color: Color(0xFF7FD3EC),
-              border: Border(right: BorderSide(color: Colors.white)),
+              color: Color(0xFFE6F2F0),
+              border: Border(right: BorderSide(color: Color(0xFFE5E7EB), width: 0.5)),
             ),
             child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
+              padding: EdgeInsets.symmetric(horizontal: 10),
               child: Text(
                 'Auxiliares',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF102A3A),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: HextColors.verdePrincipal,
                 ),
               ),
             ),
@@ -838,7 +933,9 @@ class _ScheduleMatrixCard extends StatelessWidget {
                   height: headerCellHeight,
                   isSpecial: _isSpecialDay(date),
                   isTop: true,
-                  isOutOfMonth: date.month != focusedMonth.month,
+                  isToday: _isToday(date),
+                  isSelectedWeek: isDateInSelectedWeek(date, focusedMonth),
+                  isOutOfMonth: false,
                 ),
                 _HeaderDayCell(
                   text: '${date.day}',
@@ -846,7 +943,9 @@ class _ScheduleMatrixCard extends StatelessWidget {
                   height: headerCellHeight,
                   isSpecial: _isSpecialDay(date),
                   isTop: false,
-                  isOutOfMonth: date.month != focusedMonth.month,
+                  isToday: _isToday(date),
+                  isSelectedWeek: isDateInSelectedWeek(date, focusedMonth),
+                  isOutOfMonth: false,
                 ),
               ],
             ),
@@ -856,16 +955,16 @@ class _ScheduleMatrixCard extends StatelessWidget {
             height: headerCellHeight * 2,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
-              color: Color(0xFFEAF0F6),
-              border: Border(left: BorderSide(color: Color(0xFFDCE3EA))),
+              color: Color(0xFFF7F9F8),
+              border: Border(left: BorderSide(color: Color(0xFFE5E7EB), width: 0.5)),
             ),
             child: const Text(
               'Horas\nAlertas',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF243247),
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF5D6772),
               ),
             ),
           ),
@@ -878,7 +977,7 @@ class _ScheduleMatrixCard extends StatelessWidget {
     return Container(
       height: rowHeight,
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFE7ECF1))),
+        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB), width: 0.5)),
       ),
       child: Row(
         children: <Widget>[
@@ -886,14 +985,15 @@ class _ScheduleMatrixCard extends StatelessWidget {
             width: nameColumnWidth,
             height: rowHeight,
             text: auxiliar.auxiliarNombre,
+            weeklyHours: _selectedWeekHours(auxiliar.auxiliarNombre),
           ),
           ...days.map((DateTime day) {
             final DateTime key = _onlyDate(day);
             final ScheduleCode code =
                 auxiliar.assignments[key] ?? ScheduleCode.x;
 
-            final bool isOutOfMonth = day.month != focusedMonth.month;
-            final String? specialName = isOutOfMonth ? null : holidayName(day);
+            const bool isOutOfMonth = false;
+            final String? specialName = holidayName(day);
             final String suffix = specialName == null ? '' : ' · $specialName';
 
             return _ScheduleCodeCell(
@@ -901,6 +1001,8 @@ class _ScheduleMatrixCard extends StatelessWidget {
               width: dayCellWidth,
               height: rowHeight,
               isSpecialDay: !isOutOfMonth && _isSpecialDay(day),
+              isToday: _isToday(day),
+              isSelectedWeek: isDateInSelectedWeek(day, focusedMonth),
               isOutOfMonth: isOutOfMonth,
               tooltip:
                   '${auxiliar.auxiliarNombre} · ${_formatDate(day)}$suffix · ${code.fullName}',
@@ -942,6 +1044,95 @@ class _ScheduleMatrixCard extends StatelessWidget {
         )
         .length;
   }
+
+  int _selectedWeekHours(String auxiliarNombre) {
+    final DateTime selectedWeekStart = startOfWeek(focusedMonth);
+    for (final WeeklyHoursSummary summary in weeklySummaries) {
+      if (summary.auxiliarNombre == auxiliarNombre &&
+          isSameDate(summary.weekStart, selectedWeekStart)) {
+        return summary.totalHours;
+      }
+    }
+    return 0;
+  }
+}
+
+class _CenteredScheduleScroller extends StatefulWidget {
+  const _CenteredScheduleScroller({
+    required this.days,
+    required this.focusedMonth,
+    required this.child,
+  });
+
+  final List<DateTime> days;
+  final DateTime focusedMonth;
+  final Widget child;
+
+  @override
+  State<_CenteredScheduleScroller> createState() =>
+      _CenteredScheduleScrollerState();
+}
+
+class _CenteredScheduleScrollerState extends State<_CenteredScheduleScroller> {
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _centerFocusedDate();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _CenteredScheduleScroller oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusedMonth.year != widget.focusedMonth.year ||
+        oldWidget.focusedMonth.month != widget.focusedMonth.month ||
+        oldWidget.focusedMonth.day != widget.focusedMonth.day) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _centerFocusedDate();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _centerFocusedDate() {
+    if (!_controller.hasClients) return;
+
+    final int targetIndex = widget.days.indexWhere(
+      (DateTime day) =>
+          day.year == widget.focusedMonth.year &&
+          day.month == widget.focusedMonth.month &&
+          day.day == widget.focusedMonth.day,
+    );
+    if (targetIndex < 0) return;
+
+    final double viewportWidth = _controller.position.viewportDimension;
+    final double targetCenter =
+        _ScheduleMatrixCard.nameColumnWidth +
+        (targetIndex * _ScheduleMatrixCard.dayCellWidth) +
+        (_ScheduleMatrixCard.dayCellWidth / 2);
+    final double desiredOffset = targetCenter - (viewportWidth / 2);
+    final double maxOffset = _controller.position.maxScrollExtent;
+    final double clampedOffset = desiredOffset.clamp(0.0, maxOffset);
+
+    _controller.jumpTo(clampedOffset);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      controller: _controller,
+      scrollDirection: Axis.horizontal,
+      child: widget.child,
+    );
+  }
 }
 
 class _HeaderDayCell extends StatelessWidget {
@@ -951,6 +1142,8 @@ class _HeaderDayCell extends StatelessWidget {
     required this.height,
     required this.isSpecial,
     required this.isTop,
+    this.isToday = false,
+    this.isSelectedWeek = false,
     this.isOutOfMonth = false,
   });
 
@@ -959,38 +1152,56 @@ class _HeaderDayCell extends StatelessWidget {
   final double height;
   final bool isSpecial;
   final bool isTop;
+  final bool isToday;
+  final bool isSelectedWeek;
   final bool isOutOfMonth;
 
   @override
   Widget build(BuildContext context) {
-    final Color background = isOutOfMonth
-        ? (isTop ? const Color(0xFFF0F2F5) : const Color(0xFFF5F6F8))
+    final Color background = isToday
+        ? (isTop ? const Color(0xFFF2F7F5) : const Color(0xFFF7FBFA))
+        : isSelectedWeek
+        ? (isTop ? const Color(0xFFF5F8F7) : const Color(0xFFFAFCFB))
+        : isOutOfMonth
+        ? (isTop ? const Color(0xFFF6F7F8) : const Color(0xFFFAFBFB))
         : isSpecial
-        ? (isTop ? const Color(0xFFFFD7D7) : const Color(0xFFFFECEC))
-        : (isTop ? const Color(0xFF7FD3EC) : const Color(0xFFBFEAF6));
+        ? (isTop ? const Color(0xFFF8F1F0) : const Color(0xFFFCF7F6))
+        : (isTop ? const Color(0xFFF4F8F7) : const Color(0xFFFBFCFC));
 
-    final Color foreground = isOutOfMonth
-        ? const Color(0xFFBBC5CF)
+    final Color foreground = isToday
+        ? const Color(0xFF17726D)
+        : isSelectedWeek
+        ? const Color(0xFF17726D)
+        : isOutOfMonth
+        ? const Color(0xFFB5BEC7)
         : isSpecial
-        ? const Color(0xFFC94A4A)
-        : const Color(0xFF102A3A);
+        ? const Color(0xFFB45151)
+        : const Color(0xFF17726D);
 
     return Container(
       width: width,
       height: height,
       alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: background,
-        border: const Border(
-          right: BorderSide(color: Colors.white),
-          bottom: BorderSide(color: Colors.white),
+        decoration: BoxDecoration(
+          color: background,
+          border: Border(
+            right: BorderSide(
+              color: isToday ? const Color(0xFFD7E7E2) : const Color(0xFFE5E7EB),
+              width: isToday ? 1 : 0.5,
+            ),
+            bottom: BorderSide(
+              color: isToday || isSelectedWeek
+                  ? const Color(0xFFD7E7E2)
+                  : const Color(0xFFE5E7EB),
+              width: isToday ? 1 : 0.5,
+            ),
+          ),
         ),
-      ),
       child: Text(
         text,
         style: TextStyle(
-          fontSize: isTop ? 13 : 14,
-          fontWeight: FontWeight.w700,
+          fontSize: isTop ? 12 : 12.5,
+          fontWeight: FontWeight.w500,
           color: foreground,
         ),
       ),
@@ -1003,11 +1214,13 @@ class _AuxiliarNameCell extends StatelessWidget {
     required this.width,
     required this.height,
     required this.text,
+    required this.weeklyHours,
   });
 
   final double width;
   final double height;
   final String text;
+  final int weeklyHours;
 
   @override
   Widget build(BuildContext context) {
@@ -1017,17 +1230,32 @@ class _AuxiliarNameCell extends StatelessWidget {
       alignment: Alignment.centerLeft,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(right: BorderSide(color: Color(0xFFE7ECF1))),
+        color: Color(0xFFFBFCFC),
+        border: Border(right: BorderSide(color: Color(0xFFE5E7EB), width: 0.5)),
       ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF243247),
-        ),
-        overflow: TextOverflow.ellipsis,
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF243247),
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$weeklyHours h',
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w500,
+              color: _weeklyHoursColor(weeklyHours),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1053,30 +1281,35 @@ class _AuxiliarSummaryCell extends StatelessWidget {
     return Container(
       width: width,
       height: height,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: const BoxDecoration(
-        color: Color(0xFFF9FBFD),
-        border: Border(left: BorderSide(color: Color(0xFFE7ECF1))),
+        color: Color(0xFFFBFCFC),
+        border: Border(left: BorderSide(color: Color(0xFFE5E7EB), width: 0.5)),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
             '$monthlyHours h',
             style: const TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w700,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w500,
               color: Color(0xFF243247),
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
           Text(
             'C:$criticalCount A:$alertCount',
             style: const TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF8A9BB0),
+              fontSize: 9,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF6D7884),
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -1092,6 +1325,8 @@ class _ScheduleCodeCell extends StatelessWidget {
     required this.isSpecialDay,
     required this.tooltip,
     required this.onTap,
+    this.isToday = false,
+    this.isSelectedWeek = false,
     this.isOutOfMonth = false,
   });
 
@@ -1099,6 +1334,8 @@ class _ScheduleCodeCell extends StatelessWidget {
   final double width;
   final double height;
   final bool isSpecialDay;
+  final bool isToday;
+  final bool isSelectedWeek;
   final bool isOutOfMonth;
   final String tooltip;
   final VoidCallback onTap;
@@ -1107,23 +1344,33 @@ class _ScheduleCodeCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final _CodePalette palette = code._palette;
 
-    final Color background = isOutOfMonth
-        ? const Color(0xFFF4F5F7)
+    final Color background = isToday
+        ? const Color(0xFFF8FBFA)
+        : isSelectedWeek
+        ? const Color(0xFFFBFCFC)
+        : isOutOfMonth
+        ? const Color(0xFFF7F8F9)
         : isSpecialDay
-        ? const Color(0xFFFFECEC)
+        ? const Color(0xFFFCF8F7)
         : palette.background;
 
-    final Color foreground = isOutOfMonth
+    final Color foreground = isToday
+        ? const Color(0xFF17726D)
+        : isSelectedWeek && !code.isInstitutionalShift
+        ? palette.foreground
+        : isSelectedWeek
+        ? const Color(0xFF4E6A67)
+        : isOutOfMonth
         ? const Color(0xFFD0D7DF)
         : code.isInstitutionalShift
         ? const Color(0xFF5F6B7A)
         : palette.foreground;
 
     final Color rightBorder = isOutOfMonth
-        ? const Color(0xFFEBEDF0)
+        ? const Color(0xFFEAECEF)
         : isSpecialDay
-        ? const Color(0xFFECCACA)
-        : const Color(0xFFE7ECF1);
+        ? const Color(0xFFF1E4E1)
+        : palette.border;
 
     return Tooltip(
       message: tooltip,
@@ -1135,13 +1382,24 @@ class _ScheduleCodeCell extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: background,
-            border: Border(right: BorderSide(color: rightBorder)),
+            border: Border(
+              right: BorderSide(
+                color: isToday ? const Color(0xFFD7E7E2) : rightBorder,
+                width: isToday ? 1 : 0.5,
+              ),
+              bottom: BorderSide(
+                color: isSelectedWeek
+                    ? const Color(0xFFE5EDE9)
+                    : Colors.transparent,
+                width: isSelectedWeek ? 0.5 : 0,
+              ),
+            ),
           ),
           child: Text(
             code.label,
             style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w400,
               color: foreground,
             ),
           ),
@@ -1161,13 +1419,13 @@ class _MiniInfo extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7FAFC),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE3EAF0)),
+        color: const Color(0xFFF7F9F8),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E8EA)),
       ),
       child: Text(
         text,
-        style: const TextStyle(fontSize: 12.8, color: Color(0xFF5A6978)),
+        style: const TextStyle(fontSize: 12.5, color: Color(0xFF5D6772)),
       ),
     );
   }
@@ -1183,89 +1441,68 @@ class _LegendItemData {
 AppChipTone _chipToneForCode(ScheduleCode code) {
   switch (code) {
     case ScheduleCode.m:
+      return AppChipTone.neutral;
     case ScheduleCode.t:
-      return AppChipTone.info;
+      return AppChipTone.neutral;
     case ScheduleCode.r:
-      return AppChipTone.accent;
-    case ScheduleCode.j:
       return AppChipTone.warning;
+    case ScheduleCode.j:
+      return AppChipTone.neutral;
+    case ScheduleCode.f:
+      return AppChipTone.warning;
+    case ScheduleCode.h4:
+      return AppChipTone.neutral;
     case ScheduleCode.l:
       return AppChipTone.neutral;
     case ScheduleCode.i:
     case ScheduleCode.a:
+    case ScheduleCode.s:
     case ScheduleCode.x:
       return AppChipTone.danger;
     case ScheduleCode.v:
-      return AppChipTone.accent;
+      return AppChipTone.neutral;
     case ScheduleCode.p:
       return AppChipTone.warning;
   }
 }
 
-class _TopInfoTile extends StatelessWidget {
-  const _TopInfoTile({
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.subtitle,
-    required this.tone,
-  });
-
-  final IconData icon;
-  final String title;
-  final String value;
-  final String subtitle;
-  final AppChipTone tone;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 220),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFC),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE3EAF0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Icon(icon, size: 16, color: const Color(0xFF5F6B7A)),
-              const SizedBox(width: 6),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF243247),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF243247),
-            ),
-          ),
-          const SizedBox(height: 6),
-          AppChip(label: subtitle, tone: tone, leadingDot: true),
-        ],
-      ),
-    );
-  }
-}
-
 enum TwoAuxSundayPolicy { contingencyJ, normalMT }
 
-enum ScheduleCode { m, t, r, j, l, i, v, p, a, x }
+enum ScheduleCode { m, t, r, j, f, h4, l, i, v, p, a, s, x }
 
 extension ScheduleCodeX on ScheduleCode {
+  static ScheduleCode fromImportedTurno(String raw) {
+    switch (raw.trim().toUpperCase()) {
+      case 'M':
+        return ScheduleCode.m;
+      case 'T':
+        return ScheduleCode.t;
+      case 'R':
+        return ScheduleCode.r;
+      case 'C':
+      case 'J':
+        return ScheduleCode.j;
+      case 'F':
+        return ScheduleCode.f;
+      case '4H':
+        return ScheduleCode.h4;
+      case 'L':
+        return ScheduleCode.l;
+      case 'I':
+        return ScheduleCode.i;
+      case 'V':
+        return ScheduleCode.v;
+      case 'P':
+        return ScheduleCode.p;
+      case 'A':
+        return ScheduleCode.a;
+      case 'S':
+        return ScheduleCode.s;
+      default:
+        return ScheduleCode.x;
+    }
+  }
+
   String get label {
     switch (this) {
       case ScheduleCode.m:
@@ -1275,7 +1512,11 @@ extension ScheduleCodeX on ScheduleCode {
       case ScheduleCode.r:
         return 'R';
       case ScheduleCode.j:
-        return 'J';
+        return 'C';
+      case ScheduleCode.f:
+        return 'F';
+      case ScheduleCode.h4:
+        return '4H';
       case ScheduleCode.l:
         return 'L';
       case ScheduleCode.i:
@@ -1286,12 +1527,23 @@ extension ScheduleCodeX on ScheduleCode {
         return 'P';
       case ScheduleCode.a:
         return 'A';
+      case ScheduleCode.s:
+        return 'S';
       case ScheduleCode.x:
         return 'X';
     }
   }
 
   String get fullName {
+    if (this == ScheduleCode.j) {
+      return 'Cobertura completa · 06:00–22:00';
+    }
+    if (this == ScheduleCode.f) {
+      return 'Festivo especial · 8 h';
+    }
+    if (this == ScheduleCode.h4) {
+      return 'Ajuste operativo · 4 h';
+    }
     switch (this) {
       case ScheduleCode.m:
         return 'Base AM · 06:00–14:00';
@@ -1301,6 +1553,10 @@ extension ScheduleCodeX on ScheduleCode {
         return 'Refuerzo · 08:00–17:00 · 8 h efectivas';
       case ScheduleCode.j:
         return 'Jornada completa · 06:00–22:00';
+      case ScheduleCode.f:
+        return 'Festivo especial · 8 h';
+      case ScheduleCode.h4:
+        return 'Ajuste operativo · 4 h';
       case ScheduleCode.l:
         return 'Libre';
       case ScheduleCode.i:
@@ -1311,6 +1567,8 @@ extension ScheduleCodeX on ScheduleCode {
         return 'Permiso';
       case ScheduleCode.a:
         return 'Ausencia';
+      case ScheduleCode.s:
+        return 'Suspensión';
       case ScheduleCode.x:
         return 'Pendiente';
     }
@@ -1326,11 +1584,16 @@ extension ScheduleCodeX on ScheduleCode {
         return 8;
       case ScheduleCode.j:
         return 16;
+      case ScheduleCode.f:
+        return 8;
+      case ScheduleCode.h4:
+        return 4;
       case ScheduleCode.l:
       case ScheduleCode.i:
       case ScheduleCode.v:
       case ScheduleCode.p:
       case ScheduleCode.a:
+      case ScheduleCode.s:
       case ScheduleCode.x:
         return 0;
     }
@@ -1340,16 +1603,18 @@ extension ScheduleCodeX on ScheduleCode {
     return this == ScheduleCode.m ||
         this == ScheduleCode.t ||
         this == ScheduleCode.r ||
-        this == ScheduleCode.j;
+        this == ScheduleCode.j ||
+        this == ScheduleCode.f ||
+        this == ScheduleCode.h4;
   }
 
   bool get isWorkingShift => hours > 0;
 
   _CodePalette get _palette {
     const _CodePalette institutional = _CodePalette(
-      background: Color(0xFFF1F4F7),
+      background: Color(0xFFFFFFFF),
       foreground: Color(0xFF5F6B7A),
-      border: Color(0xFFE1E7EE),
+      border: Color(0xFFE5E7EB),
     );
 
     switch (this) {
@@ -1361,41 +1626,51 @@ extension ScheduleCodeX on ScheduleCode {
         return institutional;
       case ScheduleCode.j:
         return institutional;
+      case ScheduleCode.f:
+        return institutional;
+      case ScheduleCode.h4:
+        return institutional;
       case ScheduleCode.l:
         return const _CodePalette(
-          background: Color(0xFFFCFDFE),
-          foreground: Color(0xFFCBD4DC),
-          border: Color(0xFFEDF0F3),
+          background: Color(0xFFFBFCFC),
+          foreground: Color(0xFF98A2AE),
+          border: Color(0xFFE5E7EB),
         );
       case ScheduleCode.i:
         return const _CodePalette(
-          background: Color(0xFFF9D7D7),
+          background: Color(0xFFFFFFFF),
           foreground: Color(0xFFB42318),
-          border: Color(0xFFF3C3C3),
+          border: Color(0xFFF0D5D5),
         );
       case ScheduleCode.v:
         return const _CodePalette(
-          background: Color(0xFFE7DBFB),
-          foreground: Color(0xFF6E3CBC),
-          border: Color(0xFFDCCCF9),
+          background: Color(0xFFFFFFFF),
+          foreground: Color(0xFF726A5D),
+          border: Color(0xFFE6E0D7),
         );
       case ScheduleCode.p:
         return const _CodePalette(
-          background: Color(0xFFFAF0C9),
+          background: Color(0xFFFFFFFF),
           foreground: Color(0xFF946200),
-          border: Color(0xFFF2E3AA),
+          border: Color(0xFFEEDDB6),
         );
       case ScheduleCode.a:
         return const _CodePalette(
-          background: Color(0xFFF4D0D9),
-          foreground: Color(0xFF9D174D),
-          border: Color(0xFFEAB8C8),
+          background: Color(0xFFFFFFFF),
+          foreground: Color(0xFFB04B65),
+          border: Color(0xFFEED3DA),
+        );
+      case ScheduleCode.s:
+        return const _CodePalette(
+          background: Color(0xFFFFFFFF),
+          foreground: Color(0xFFB42318),
+          border: Color(0xFFF0D5D5),
         );
       case ScheduleCode.x:
         return const _CodePalette(
-          background: Color(0xFFF8D4D4),
+          background: Color(0xFFFFFFFF),
           foreground: Color(0xFFB42318),
-          border: Color(0xFFF1BDBD),
+          border: Color(0xFFEFD0D0),
         );
     }
   }
@@ -1507,10 +1782,84 @@ class _RestCandidate {
   bool get isDropReserve => reserveIndex == null;
 }
 
+GeneratedMonthPlan _buildImportedMonthPlan({
+  required DateTime month,
+  required ImportedScheduleMonthData importedMonth,
+  required List<DateTime> visibleDays,
+  Map<String, Map<DateTime, ScheduleCode>> overrides =
+      const <String, Map<DateTime, ScheduleCode>>{},
+}) {
+  final DateTime normalizedMonth = DateTime(month.year, month.month, 1);
+  final List<DateTime> days = visibleDays;
+  final List<String> nombres = importedMonth.auxiliarNames;
+  final List<String> baseNombres = nombres.take(3).toList();
+
+  final GeneratedMonthPlan basePlan = _generateMonthPlan(
+    year: normalizedMonth.year,
+    month: normalizedMonth.month,
+    nombres: baseNombres,
+    visibleDays: days,
+    twoAuxSundayPolicy: kHorarioTwoAuxSundayPolicy,
+  );
+
+  final List<AuxiliarMonthlySchedule> auxiliares = <AuxiliarMonthlySchedule>[];
+
+  for (int index = 0; index < nombres.length; index++) {
+    final String nombre = nombres[index];
+    final Map<DateTime, ScheduleCode> assignments =
+        index < basePlan.auxiliares.length
+        ? Map<DateTime, ScheduleCode>.from(
+            basePlan.auxiliares[index].assignments,
+          )
+        : <DateTime, ScheduleCode>{
+            for (final DateTime day in days) _onlyDate(day): ScheduleCode.l,
+          };
+
+    final Map<DateTime, ScheduledShift> importedAssignments =
+        importedMonth.entriesByAuxiliar[nombre] ??
+        const <DateTime, ScheduledShift>{};
+    importedAssignments.forEach((
+      DateTime date,
+      ScheduledShift entry,
+    ) {
+      assignments[_onlyDate(date)] = ScheduleCodeX.fromImportedTurno(entry.turno);
+    });
+
+    final Map<DateTime, ScheduleCode>? manualOverrides = overrides[nombre];
+    if (manualOverrides != null) {
+      manualOverrides.forEach((DateTime date, ScheduleCode code) {
+        assignments[_onlyDate(date)] = code;
+      });
+    }
+
+    auxiliares.add(
+      AuxiliarMonthlySchedule(
+        auxiliarNombre: nombre,
+        assignments: assignments,
+      ),
+    );
+  }
+
+  final List<WeeklyHoursSummary> weeklySummaries = _buildWeeklySummaries(
+    days: days,
+    auxiliares: auxiliares,
+  );
+
+  return GeneratedMonthPlan(
+    auxiliares: auxiliares,
+    weeklySummaries: weeklySummaries,
+    notes: const PlanNotes(
+      maxWorkedSundaysRuleDescription:
+          'Horario importado HEXT activo; fuera de los dias cargados se conserva base operativa.',
+    ),
+  );
+}
+
 GeneratedMonthPlan _generateMonthPlan({
   required int year,
   required int month,
   required List<String> nombres,
+  List<DateTime>? visibleDays,
   required TwoAuxSundayPolicy twoAuxSundayPolicy,
   Map<String, Map<DateTime, ScheduleCode>> overrides =
       const <String, Map<DateTime, ScheduleCode>>{},
@@ -1519,7 +1868,8 @@ GeneratedMonthPlan _generateMonthPlan({
     throw Exception('Solo se permiten 1, 2 o 3 auxiliares de enfermería.');
   }
 
-  final List<DateTime> days = _daysOfMonth(DateTime(year, month, 1));
+  final List<DateTime> days =
+      visibleDays ?? _daysOfMonth(DateTime(year, month, 1));
   final int totalAuxiliares = nombres.length;
 
   final List<Map<DateTime, ScheduleCode>> assignments =
@@ -1657,7 +2007,6 @@ void _assignSpecialDay({
         ? ScheduleCode.j
         : _orderedSpecialShifts(specialOrder).first;
     assignments[0][key] = code;
-
     _registerSpecialLoad(
       load: loads[0],
       date: day,
@@ -1667,55 +2016,32 @@ void _assignSpecialDay({
     return;
   }
 
-  if (totalAuxiliares == 2) {
-    if (isSunday && twoAuxSundayPolicy == TwoAuxSundayPolicy.contingencyJ) {
-      final int worker = _pickSundayJWorker(date: day, loads: loads);
-      final int rest = worker == 0 ? 1 : 0;
+  if (totalAuxiliares == 2 &&
+      isSunday &&
+      twoAuxSundayPolicy == TwoAuxSundayPolicy.contingencyJ) {
+    final int worker = _pickSundayJWorker(date: day, loads: loads);
+    final int rest = worker == 0 ? 1 : 0;
 
-      assignments[worker][key] = ScheduleCode.j;
-      assignments[rest][key] = ScheduleCode.l;
-
-      _registerSpecialLoad(
-        load: loads[worker],
-        date: day,
-        specialOrder: specialOrder,
-        isJ: true,
-      );
-      return;
-    }
-
-    final List<ScheduleCode> shifts = _orderedSpecialShifts(specialOrder);
-    assignments[0][key] = shifts[0];
-    assignments[1][key] = shifts[1];
+    assignments[worker][key] = ScheduleCode.j;
+    assignments[rest][key] = ScheduleCode.l;
 
     _registerSpecialLoad(
-      load: loads[0],
+      load: loads[worker],
       date: day,
       specialOrder: specialOrder,
-      isJ: false,
-    );
-    _registerSpecialLoad(
-      load: loads[1],
-      date: day,
-      specialOrder: specialOrder,
-      isJ: false,
+      isJ: true,
     );
     return;
   }
 
+  final List<ScheduleCode> shifts = _orderedSpecialShifts(specialOrder);
   final List<int> workers = _pickFairSpecialWorkers(
     date: day,
     loads: loads,
     count: 2,
   );
 
-  final List<ScheduleCode> shifts = _orderedSpecialShifts(specialOrder);
-
-  for (
-    int auxiliarIndex = 0;
-    auxiliarIndex < totalAuxiliares;
-    auxiliarIndex++
-  ) {
+  for (int auxiliarIndex = 0; auxiliarIndex < totalAuxiliares; auxiliarIndex++) {
     if (auxiliarIndex == workers[0]) {
       assignments[auxiliarIndex][key] = shifts[0];
     } else if (auxiliarIndex == workers[1]) {
@@ -2225,26 +2551,47 @@ List<DateTime> _daysOfMonth(DateTime month) {
   );
 }
 
-/// Expands [days] to full ISO weeks (Mon–Sun), padding with days from the
-/// adjacent months so the grid never starts mid-week or ends mid-week.
-List<DateTime> _padToFullWeeks(List<DateTime> days) {
-  if (days.isEmpty) return days;
-  final DateTime firstMonday = _mondayOfWeek(days.first);
-  final DateTime lastDay = days.last;
-  final DateTime lastSunday = lastDay.add(
-    Duration(days: DateTime.sunday - lastDay.weekday),
+List<DateTime> buildCenteredDateWindow(DateTime centerDate) {
+  final DateTime normalized = _onlyDate(centerDate);
+  final DateTime startDate = normalized.subtract(const Duration(days: 15));
+  return List<DateTime>.generate(
+    31,
+    (int index) => startDate.add(Duration(days: index)),
   );
-  final List<DateTime> padded = <DateTime>[];
-  DateTime cursor = firstMonday;
-  while (!cursor.isAfter(lastSunday)) {
-    padded.add(cursor);
-    cursor = cursor.add(const Duration(days: 1));
-  }
-  return padded;
+}
+
+DateTime _shiftWindowCenterByMonth(DateTime centerDate, int monthDelta) {
+  final DateTime normalized = _onlyDate(centerDate);
+  final int targetYear = normalized.year + ((normalized.month - 1 + monthDelta) ~/ 12);
+  final int targetMonth = ((normalized.month - 1 + monthDelta) % 12 + 12) % 12 + 1;
+  final int lastDayOfTargetMonth = DateTime(targetYear, targetMonth + 1, 0).day;
+  final int safeDay = normalized.day <= lastDayOfTargetMonth
+      ? normalized.day
+      : lastDayOfTargetMonth;
+  return DateTime(targetYear, targetMonth, safeDay);
+}
+
+bool isSameDate(DateTime a, DateTime b) {
+  return a.year == b.year && a.month == b.month && a.day == b.day;
 }
 
 DateTime _onlyDate(DateTime date) {
   return DateTime(date.year, date.month, date.day);
+}
+
+DateTime startOfWeek(DateTime date) {
+  return _mondayOfWeek(date);
+}
+
+DateTime endOfWeek(DateTime date) {
+  return startOfWeek(date).add(const Duration(days: 6));
+}
+
+bool isDateInSelectedWeek(DateTime date, DateTime selectedWeekDate) {
+  final DateTime start = startOfWeek(selectedWeekDate);
+  final DateTime end = endOfWeek(selectedWeekDate);
+  final DateTime normalized = _onlyDate(date);
+  return !normalized.isBefore(start) && !normalized.isAfter(end);
 }
 
 DateTime _mondayOfWeek(DateTime date) {
@@ -2300,6 +2647,23 @@ String _monthYearLabel(DateTime date) {
   ];
 
   return '${months[date.month - 1]} ${date.year}';
+}
+
+bool _isToday(DateTime date) {
+  final DateTime now = DateTime.now();
+  return date.year == now.year &&
+      date.month == now.month &&
+      date.day == now.day;
+}
+
+Color _weeklyHoursColor(int weeklyHours) {
+  if (weeklyHours > 56) {
+    return const Color(0xFFB42318);
+  }
+  if (weeklyHours > 44) {
+    return const Color(0xFF9A6700);
+  }
+  return const Color(0xFF8A9BB0);
 }
 
 bool _isSpecialDay(DateTime date) {

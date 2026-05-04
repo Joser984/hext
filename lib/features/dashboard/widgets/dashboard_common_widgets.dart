@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hext/shared/widgets/hext_card.dart';
 
 // Constantes visuales locales para widgets extraídos
 const dashboardCardBg = Colors.white;
@@ -20,20 +21,8 @@ class SurfaceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return HextCard(
       padding: padding,
-      decoration: BoxDecoration(
-        color: dashboardCardBg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: dashboardBorderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
       child: child,
     );
   }
@@ -122,6 +111,9 @@ class Bar extends StatelessWidget {
   final Color color;
   final bool compact;
   final double maxPixels;
+  final bool showValue;
+  final Color? valueColor;
+  final String? semanticLabel;
 
   const Bar({
     required this.value,
@@ -129,32 +121,53 @@ class Bar extends StatelessWidget {
     required this.color,
     this.compact = false,
     this.maxPixels = 150,
+    this.showValue = false,
+    this.valueColor,
+    this.semanticLabel,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
     final double height = max == 0 ? 0 : (value / max) * maxPixels;
+    final bool placeValueAbove = !compact || height >= 22;
+    final Widget valueText = Text(
+      '$value',
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: valueColor ?? dashboardMutedColor,
+      ),
+    );
+    final Widget barShape = Container(
+      width: compact ? 14 : 20,
+      height: height.clamp(compact ? 4 : 8, maxPixels),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(8),
+      ),
+    );
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: <Widget>[
-        if (!compact)
-          Text(
-            '$value',
-            style: const TextStyle(fontSize: 12, color: dashboardMutedColor),
+    return Tooltip(
+      message: semanticLabel == null ? '$value' : '$semanticLabel: $value',
+      waitDuration: const Duration(milliseconds: 250),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: <Widget>[
+          if (!compact || (showValue && placeValueAbove)) valueText,
+          SizedBox(
+            height: !compact || (showValue && placeValueAbove)
+                ? (compact ? 4 : 8)
+                : 0,
           ),
-        SizedBox(height: compact ? 0 : 8),
-        Container(
-          width: compact ? 14 : 20,
-          height: height.clamp(compact ? 4 : 8, maxPixels),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      ],
+          if (compact && showValue && !placeValueAbove) ...<Widget>[
+            valueText,
+            const SizedBox(height: 2),
+          ],
+          barShape,
+        ],
+      ),
     );
   }
 }
